@@ -55,10 +55,14 @@ VOZ_SPEAKER_2 = "pt-BR-AntonioNeural"
 # ─────────────────────────────────────────────
 
 # TODO: Atualizar com os nomes corretos dos assets de áudio
-ASSET_VH_ABERTURA     = "VH AB - NOTICIAS DA HORA.mp3"         # Vinheta de abertura do programa
-ASSET_VH_ENCERRAMENTO = "VH ENC - NOTICIAS DA HORA.mp3"        # Vinheta de encerramento do programa
+# TODO: Atualizar com os nomes corretos dos assets de áudio
+ASSET_VH_ABERTURA     = "ABERTURA.mp3"         # Vinheta de abertura (6 s)
+ASSET_VH_ENCERRAMENTO = "ENCERRAMENTO.mp3"    # Vinheta de encerramento (6 s)
 ASSET_BG_ESCALADA     = "BG - BOLETIM NOTICIAS DA HORA.mp3"    # Trilha de fundo (escalada + encerramento)
 ASSET_VHT_PASSAGEM    = "EFEITO - TRILHA BOLETIM NOTICIAS DA HORA.mp3"  # Efeito de transição entre matérias
+
+# Volume do BG (em dB — negativo = mais baixo que o original)
+BG_VOLUME_REDUCTION_DB = -12  # aprox. 30% do volume original
 
 # Volume do BG (em dB — negativo = mais baixo que o original)
 BG_VOLUME_REDUCTION_DB = -12  # aprox. 30% do volume original
