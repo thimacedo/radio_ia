@@ -163,15 +163,21 @@ def extrair_data_roteiro(caminho_txt, ep):
 async def main():
     print("=== Edge TTS Multi-speaker — Locução Automática Gratuita em Lote ===")
     
-    # 1. Listar arquivos tratados nas pastas
-    target_months = ["3 - MARÇO", "4 - ABRIL", "5 - MAIO"]
+    # 1. Listar arquivos tratados nas pastas (dinamicamente por subpastas)
+    if os.path.exists(src_base_dir):
+        target_months = sorted([
+            d for d in os.listdir(src_base_dir)
+            if os.path.isdir(os.path.join(src_base_dir, d)) and not d.startswith('.')
+        ])
+    else:
+        target_months = []
+        
     arquivos_processados = []
     
     for m in target_months:
         month_dir = os.path.join(src_base_dir, m)
-        if os.path.exists(month_dir):
-            arquivos = [os.path.join(month_dir, f) for f in os.listdir(month_dir) if f.endswith(".txt")]
-            arquivos_processados.extend(arquivos)
+        arquivos = [os.path.join(month_dir, f) for f in os.listdir(month_dir) if f.endswith(".txt")]
+        arquivos_processados.extend(arquivos)
             
     if not arquivos_processados:
         print(f"\n[AVISO] Nenhum arquivo .txt encontrado em '{src_base_dir}'.")

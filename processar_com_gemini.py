@@ -137,7 +137,11 @@ def main():
         print(f"[ERRO] Pasta do Drive não encontrada: {src_base_dir}")
         return
         
-    target_months = ["3 - MARÇO", "4 - ABRIL", "5 - MAIO"]
+    # 1. Obter subpastas (meses) dinamicamente
+    target_months = sorted([
+        d for d in os.listdir(src_base_dir)
+        if os.path.isdir(os.path.join(src_base_dir, d)) and not d.startswith('.')
+    ])
     total_sucessos = 0
     
     for m in target_months:
