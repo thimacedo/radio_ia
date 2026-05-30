@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 
 LOCAL_BOLETINS_DIR = r"e:/NJUD/boletins"
-DRIVE_EDITED_BASE = r"H:/Meu Drive/RADIO TJRN CONTEÚDO/0-BOLETINS/Boletins 2026"
+DRIVE_EDITED_BASE = r"H:/Meu Drive/RADIO TJRN CONTEÚDO/EDIÇÃO/BOLETINS/2026"
 DRIVE_MAILING_BASE = r"H:/Meu Drive/RADIO TJRN CONTEÚDO/1-BOLETINS ENVIADOS/2026"
 
 MONTH_NAMES_SHORT = {
@@ -94,8 +94,8 @@ def sincronizar():
                 continue
                 
             # Definir caminhos de dias no Drive
-            # Editados: DD MM - DIA_SEMANA (ex: "22 05 - SEX")
-            dia_edited_folder = f"{dia_num:02d} {mes_num:02d} - {weekday}"
+            # Editados: DD MM (ex: "22 05")
+            dia_edited_folder = f"{dia_num:02d} {mes_num:02d}"
             drive_edited_day_path = os.path.join(drive_edited_month, dia_edited_folder).replace("\\", "/")
             
             # Mailing: DD MM (ex: "22 05")

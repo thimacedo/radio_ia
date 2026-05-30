@@ -388,24 +388,35 @@ async def main():
     sucessos = 0
     linhas_atualizadas = [] # Armazena quais linhas foram modificadas
     
-    for sheet_name, row_idx, row_data in pendencias:
-        # Executa processamento do boletim
-        t0 = time.time()
-        processado = await processar_boletim(row_idx, row_data, assets, args.test)
-        if processado:
+    # Limitar concorrência para não estourar limite do Edge TTS
+    sem = asyncio.Semaphore(4)
+    
+    async def processar_com_sem(sheet_name, row_idx, row_data):
+        async with sem:
+            try:
+                processado = await processar_boletim(row_idx, row_data, assets, args.test)
+                if processado:
+                    # Pequeno delay pós-sucesso dentro do worker para espaçar requisições
+                    await asyncio.sleep(1.0)
+                    return sheet_name, row_idx, row_data
+            except Exception as e:
+                print(f"  [ERRO] Falha crítica ao processar linha {row_idx} ({sheet_name}): {e}")
+            return None
+
+    print(f"Iniciando processamento concorrente de {len(pendencias)} pendências...")
+    tasks = [processar_com_sem(s_name, r_idx, r_data) for s_name, r_idx, r_data in pendencias]
+    results = await asyncio.gather(*tasks)
+    
+    for res in results:
+        if res:
             sucessos += 1
-            # Se não estiver no modo de teste, prepara os dados de atualização da planilha
             if not args.test:
+                sheet_name, row_idx, row_data = res
                 loc_val = row_data[3]
                 _, speaker_init = obter_config_voz(loc_val)
-                # Adiciona o checkmark de locução e edição
                 novo_locutor_texto = f"{speaker_init} ✔"
-                novo_editor_texto = "LET ✔" # Assume editor padrão que mixou os arquivos
+                novo_editor_texto = "LET ✔"
                 linhas_atualizadas.append((sheet_name, row_idx, novo_locutor_texto, novo_editor_texto))
-            # Intervalo de 1.5s para evitar rate limiting do Edge-TTS
-            time.sleep(1.5)
-        else:
-            print(f"  [ERRO] Falha ao processar boletim na linha {row_idx} ({sheet_name})")
             
     print(f"\n=== PROCESSAMENTO FINALIZADO: {sucessos} de {len(pendencias)} concluídos ===")
     
@@ -465,6 +476,13 @@ async def main():
             print(f"  [OK] Todos os CSVs copiados para o Drive em: {drive_csv_dir}")
         else:
             print(f"[AVISO] Pasta do Drive '{DRIVE_DIR}' não encontrada. Planilhas salvas apenas localmente.")
+            
+        # Sincronizar os áudios e textos gerados com as pastas do Drive
+        try:
+            from sincronizar_boletins_drive import sincronizar
+            sincronizar()
+        except Exception as e:
+            print(f"[ERRO] Falha ao executar sincronização com o Drive: {e}")
             
     print("\n=== PIPELINE CONCLUÍDO ===")
 
