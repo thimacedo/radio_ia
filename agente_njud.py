@@ -133,7 +133,7 @@ async def processar_roteiro_completo(caminho_txt: str, caminho_saida: str, cfg: 
         print(f"       [{idx+1}/{len(falas)}] Gravando {speaker} com voz '{voz}' ({len(texto)} chars)...")
         try:
             segmento_bytes = await gerar_segmento_audio(texto, voz)
-            audio_segmentos.append(segimento_bytes)
+            audio_segmentos.append(segmento_bytes)
         except Exception as e:
             print(f"       [ERRO] Falha ao gerar segmento {idx+1}: {e}")
             return False
