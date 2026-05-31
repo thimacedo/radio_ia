@@ -38,14 +38,19 @@ TTS_DIR    = pathlib.Path(r"E:\NJUD\PROGRAMA GIRO NAS COMARCAS\tts_txt")
 OUT_DIR    = TTS_DIR.parent / "tts_txt_revisado"
 OUT_DIR.mkdir(exist_ok=True)
 
-OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
-if not OPENAI_KEY:
-    # tenta ler do .env
-    env_path = pathlib.Path(r"e:\NJUD\.env")
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("OPENAI_API_KEY="):
-                OPENAI_KEY = line.split("=", 1)[1].strip()
+def get_openai_key():
+    key = os.getenv("OPENAI_API_KEY", "")
+    if not key:
+        env_path = pathlib.Path(r"e:\NJUD\.env")
+        if env_path.exists():
+            content = env_path.read_text(encoding="utf-8")
+            # Busca a chave ignorando quebras de linha que o Select-String pode ter introduzido
+            match = re.search(r"OPENAI_API_KEY\s*=\s*([^\s]+)", content)
+            if match:
+                key = match.group(1).strip()
+    return key
+
+OPENAI_KEY = get_openai_key()
 
 if not OPENAI_KEY:
     sys.exit("OPENAI_API_KEY não encontrada. Configure no .env ou como variável de ambiente.")
@@ -62,23 +67,26 @@ client = OpenAI(api_key=OPENAI_KEY)
 SYSTEM_PROMPT = """\
 Você é um editor especializado em radiojornalismo para o TJRN.
 Sua tarefa é reescrever o texto de locução recebido aplicando EXATAMENTE as regras abaixo.
-Devolva APENAS o texto reescrito, sem comentários, sem asteriscos, sem markdown.
+O texto pode conter tags de locutor (ex: LOCUTOR 1:, LOCUTOR 2:, LOCUTOR 1 (CABEÇA):). 
+Você DEVE PRESERVAR essas tags exatamente como estão no início das falas.
 
 REGRAS OBRIGATÓRIAS:
-1. Números, valores financeiros, porcentagens, datas e horas: escrever por extenso.
+1. Preserve as tags LOCUTOR 1: e LOCUTOR 2: no início dos blocos de fala.
+2. Números, valores financeiros, porcentagens, datas e horas: escrever por extenso.
    Ex: "R$ 21,1 mil" → "vinte e um mil e cem reais"
        "37, parágrafo 6" → "trinta e sete, parágrafo sexto"
        "16 de janeiro de 2024" → "dezesseis de janeiro de dois mil e vinte e quatro"
        "8h" → "às oito horas"
-2. Siglas: soletrar letra a letra separadas por espaço na PRIMEIRA menção; nas seguintes pode repetir a sigla soletrada.
+3. Siglas: soletrar letra a letra separadas por espaço na PRIMEIRA menção; nas seguintes pode repetir a sigla soletrada.
    Ex: "TJRN" → "T J R N"  |  "NAPS" → "N A P S"  |  "CGJ" → "C G J"
-3. Sites e links: leitura literal. Ex: "tjrn.jus.br" → "t j r n ponto jus ponto b r"
-4. Linguagem simples: eliminar jargões jurídicos desnecessários, termos formalistas.
+4. Sites e links: leitura literal. Ex: "tjrn.jus.br" → "t j r n ponto jus ponto b r"
+5. Linguagem simples: eliminar jargões jurídicos desnecessários, termos formalistas.
    Substituir por equivalentes diretos. Ex: "prolatou sentença" → "decidiu", "parte autora" → "a cidadã"
-5. Nunca começar a nota pelo verbo. Reestruture se necessário.
-6. Manter a essência e os fatos da notícia intactos.
-7. Texto corrido, sem bullets, sem listas.
-8. Nenhum markdown (sem *, sem **, sem #).
+6. Nunca começar a nota pelo verbo. Reestruture se necessário.
+7. Manter a essência e os fatos da notícia intactos.
+8. Texto corrido dentro de cada fala, sem bullets, sem listas.
+9. Nenhum markdown (sem *, sem **, sem #).
+Devolva APENAS o texto reescrito, mantendo as tags de locutor.
 """
 
 def rewrite_bloc(text: str, prog_id: str) -> str:

@@ -45,6 +45,13 @@ Focado na formatação e locução do programa semanal NJUD com alternância de 
 * **`agente_njud.py` / `gerar_locucao_multi_speaker.py`**: Consome os roteiros tratados e gera a locução alternada (vocal feminina `pt-BR-FranciscaNeural` e masculina `pt-BR-AntonioNeural`), gerando o MP3 final encapsulado por vinhetas.
 * **`patch_vinhetas.py`**: Utilitário para corrigir vinhetas de abertura e encerramento de arquivos MP3 gerados em lote de forma limpa e sem distorcer o conteúdo da locução.
 
+### 3. Sistema Giro nas Comarcas (Programa Semanal)
+Fluxo especializado para o programa de notícias das comarcas do interior.
+
+* **`converter_giroscomarcas_seguro.py`**: Estrutura o texto bruto com as marcações de vinhetas e locução.
+* **`rewrite_giro_tts.py`**: Aplica inteligência artificial (OpenAI GPT-4o-mini) para formatar o texto conforme as regras de radiojornalismo (extenso, soletrado, linguagem simples).
+* **`gerar_locucao_giro_premium.py`**: Gera a locução final com vozes neurais alternadas e mixagem de vinhetas em um único pipeline.
+
 ---
 
 ## ⚙️ Integração com o Google Drive
