@@ -31,18 +31,24 @@ def extract_info_2025(mp3_name):
     return None, None
 
 def extract_info_2026(mp3_name):
-    # Expected format: GNC-<date>.mp3 (date may be YYYYMMDD or YYYY-MM-DD)
-    parts = mp3_name[:-4].split('-')
-    if len(parts) >= 2:
-        date_part = parts[1]
-        for fmt in ("%Y%m%d", "%Y-%m-%d"):
-            try:
-                date = datetime.datetime.strptime(date_part, fmt).date()
-                return str(date)
-            except ValueError:
-                continue
-        return date_part
-    return None
+    # Expected format: GNC-<date>.mp3 (date may be YYYYMMDD, YYYY-MM-DD, or "DD MM" pattern like "GNC - 13 01.mp3")
+    import re
+    base = mp3_name[:-4]
+    # Try explicit YYYYMMDD or YYYY-MM-DD first
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            date = datetime.datetime.strptime(base.split('-')[-1], fmt).date()
+            return str(date)
+        except Exception:
+            continue
+    # Fallback: extract day and month numbers from filename
+    nums = re.findall(r"\d+", base)
+    if len(nums) >= 2:
+        day = nums[0].zfill(2)
+        month = nums[1].zfill(2)
+        # Assume year 2026 for all files in this folder
+        return f"2026{month}{day}"
+    return "unknown"
 
 def find_roteiro(folder_path):
     for ext in [".docx", ".gdoc", ".txt"]:
@@ -80,6 +86,11 @@ def process_year(year):
                 num, date_extracted = extract_info_2025(mp3_files[0])
                 if date_extracted:
                     date = date_extracted
+                for mp3 in mp3_files:
+                    src = os.path.join(prog_dir, mp3)
+                    dest = os.path.join(WORKSPACE, str(year), prog_num, mp3)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    shutil.copy2(src, dest)
             report_lines.append(f"| {prog_num} | {date} | {'✅' if roteiro_ok else '❌'} | {'✅' if audio_ok else '❌'} |")
         else:
             prog_num = entry
@@ -88,7 +99,7 @@ def process_year(year):
                     src = os.path.join(prog_dir, mp3)
                     date_part = extract_info_2026(mp3) or "unknown"
                     new_name = f"GNC-{date_part}.mp3"
-                    dest = os.path.join(WORKSPACE, prog_num, new_name)
+                    dest = os.path.join(WORKSPACE, str(year), prog_num, new_name)
                     os.makedirs(os.path.dirname(dest), exist_ok=True)
                     shutil.copy2(src, dest)
             else:
