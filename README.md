@@ -6,9 +6,9 @@ Este repositório foi reestruturado em módulos para facilitar a manutenção e 
 
 O sistema está dividido em 3 grandes domínios:
 
-1.  **[Boletins](./modules/boletins/)**: Processamento de notícias rápidas (1 min) via Excel.
-2.  **[Jornal NJUD](./modules/jornal/)**: Programa semanal com bancada multi-speaker.
-3.  **[Giro nas Comarcas](./modules/giro/)**: Noticiário das comarcas com integração total de IA.
+1.  **[Notícias da Hora](./modules/boletins/)**: Boletins que trazem as últimas notícias do Poder Judiciário.
+2.  **[Notícias do Judiciário (NJUD)](./modules/jornal/)**: Jornal diário que traz os destaques entre as últimas notícias do Poder Judiciário.
+3.  **[Giro nas Comarcas](./modules/giro/)**: Um giro pelas comarcas de todo o Rio Grande do Norte para acompanhar as novidades, mudanças, eventos e fatos relevantes da Justiça Potiguar. Programa semanal.
 
 ---
 
