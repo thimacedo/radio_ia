@@ -22,7 +22,7 @@ SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?for
 BOLETINS_INPUT_DIR = current_dir # Excel é baixado aqui
 BOLETINS_OUTPUT_DIR = pathlib.Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\0-BOLETINS")
 LOCAL_WORK_DIR = current_dir / "workspace"
-VHT_DIR = current_dir / "VHT"
+VHT_DIR = project_root / "assets" / "vht"
 
 # Mapeamento dos meses no formato NJUD
 MONTH_MAP = {

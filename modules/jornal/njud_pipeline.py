@@ -19,7 +19,7 @@ NJUD_INPUT_DIR = pathlib.Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO
 NJUD_OUTPUT_DIR = pathlib.Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026\Audio")
 LOCAL_WORK_DIR = project_root / "modules" / "jornal" / "workspace"
 
-VHT_DIR = project_root / "boletins" / "VHT" # Vinhetas do NJUD estão com as do boletim
+VHT_DIR = project_root / "assets" / "vht" # Vinhetas do NJUD estão com as do boletim
 # Assumindo que NJUD 1806 28-01.mp3 é um exemplo ou BG. 
 # Para manter genérico, vamos mapear o BG do boletim ou deixar None e editar depois se necessário.
 
