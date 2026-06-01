@@ -14,13 +14,17 @@ O sistema está dividido em 3 grandes domínios:
 
 ## 🚀 Como Iniciar
 
-Para facilitar a operação diária, utilize o menu central:
+Para facilitar a operação diária, o sistema conta com uma Interface Gráfica (Dashboard). 
 
+Basta dar um duplo clique no arquivo:
+**`Iniciar_Painel.bat`**
+
+Ou, via terminal:
 ```powershell
-python Main.py
+python Dashboard.py
 ```
 
-Este menu permite disparar os pipelines de cada módulo, enviar relatórios e monitorar o status.
+O painel permite disparar os pipelines de cada módulo (Giro, Boletins, NJUD, Redação) com um clique. Uma janela de terminal segura será aberta para exibir o progresso do processamento escolhido.
 
 ---
 
