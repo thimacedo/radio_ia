@@ -25,6 +25,7 @@ def menu():
         print("2. [NOTÍCIAS DO JUDICIÁRIO] Gerar Jornal (NJUD)")
         print("3. [GIRO NAS COMARCAS]    Processar Programa")
         print("4. [RELATÓRIO]            Enviar por E-mail")
+        print("5. [REDAÇÃO]              Escrever Roteiros (IA)")
         print("----------------------------------------")
         print("0. Sair")
         print("========================================")
@@ -39,6 +40,8 @@ def menu():
             run_script(pathlib.Path("modules/giro/giro_pipeline.py"))
         elif choice == '4':
             run_script(pathlib.Path("core/send_report.py"))
+        elif choice == '5':
+            run_script(pathlib.Path("modules/redacao/redator_ia.py"))
         elif choice == '0':
             print("Saindo...")
             break

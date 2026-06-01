@@ -11,6 +11,17 @@ class LLMFactory:
     def __init__(self):
         self.keys = self._load_keys()
         
+        # Fila dinâmica de provedores. A ordem inicial importa (mais rápidos/baratos primeiro).
+        self.providers = [
+            {"name": "GROQ", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+            {"name": "OPENROUTER", "base_url": "https://openrouter.ai/api/v1", "model": "google/gemini-2.0-flash-001"},
+            {"name": "OPENAI", "base_url": None, "model": "gpt-4o-mini"},
+            {"name": "GEMINI", "base_url": None, "model": "gemini-1.5-flash"}
+        ]
+        
+        # Rastreador de falhas consecutivas para banimento temporário na sessão
+        self.consecutive_failures = {p["name"]: 0 for p in self.providers}
+        
     def _load_keys(self):
         keys = {}
         env_path = pathlib.Path(r"E:\NJUD\.env")
@@ -47,41 +58,59 @@ class LLMFactory:
         with urllib.request.urlopen(req) as response:
             res_data = json.loads(response.read().decode('utf-8'))
             text = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
-            # Clean markdown
             text = re.sub(r'^```[a-z]*\n', '', text, flags=re.MULTILINE)
             text = re.sub(r'\n```$', '', text, flags=re.MULTILINE)
             return text
 
     def ask(self, system_prompt, user_prompt):
-        # Ordem de tentativa: Groq -> OpenRouter -> OpenAI -> Gemini
-        providers = [
-            ("GROQ", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-            ("OPENROUTER", "https://openrouter.ai/api/v1", "google/gemini-2.0-flash-001"),
-            ("OPENAI", None, "gpt-4o-mini"),
-            ("GEMINI", None, "gemini-1.5-flash")
-        ]
+        attempts = len(self.providers)
+        
+        for _ in range(attempts):
+            if not self.providers:
+                raise Exception("CRÍTICO: Nenhum provedor LLM disponível. Todos falharam repetidamente.")
 
-        for name, base_url, model in providers:
+            # Sempre tenta o primeiro da fila atual
+            provider = self.providers[0]
+            name = provider["name"]
+            
             key_name = f"{name}_API_KEY" if name != "REPLICATE" else "REPLICATE_API_TOKEN"
             api_key = self.keys.get(key_name)
             
             if not api_key:
+                # Se não tem a chave, remove da fila e tenta o próximo
+                self.providers.pop(0)
                 continue
 
-            print(f"    [LLM] Tentando {name} ({model})...")
+            print(f"    [LLM] Tentando {name} ({provider['model']})...")
             try:
                 if name == "GEMINI":
-                    return self._call_gemini(api_key, model, system_prompt, user_prompt)
+                    res = self._call_gemini(api_key, provider["model"], system_prompt, user_prompt)
                 else:
-                    return self._call_openai_compatible(api_key, base_url, model, system_prompt, user_prompt)
+                    res = self._call_openai_compatible(api_key, provider["base_url"], provider["model"], system_prompt, user_prompt)
+                
+                # Sucesso: zera o contador de falhas
+                self.consecutive_failures[name] = 0
+                return res
+                
             except Exception as e:
-                print(f"    [!] Falha em {name}: {e}")
-                continue
-        
-        raise Exception("Todos os provedores de LLM falharam.")
+                self.consecutive_failures[name] += 1
+                falhas = self.consecutive_failures[name]
+                print(f"      [!] Falha em {name} (Erro: {e})")
+                
+                if falhas >= 3:
+                    print(f"\n      [🚨 ALERTA] {name} falhou {falhas} vezes seguidas.")
+                    print(f"      Motivo: {e}")
+                    print(f"      Ação: Removendo {name} permanentemente do fallback nesta rodada. Verifique limites ou a chave no .env.\n")
+                    self.providers.pop(0) # Remove permanentemente
+                else:
+                    print(f"      -> Movendo {name} para o fim da fila de fallback.")
+                    # Move para o fim da fila para não travar a execução nas próximas chamadas imediatas
+                    failed_prov = self.providers.pop(0)
+                    self.providers.append(failed_prov)
+                    
+        raise Exception("Todos os provedores da fila atual falharam nesta solicitação.")
 
 if __name__ == "__main__":
-    # Teste simples
     factory = LLMFactory()
     res = factory.ask("Você é um assistente útil.", "Diga 'Olá Mundo'")
     print(f"Resultado teste: {res}")
