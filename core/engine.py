@@ -40,9 +40,12 @@ class PipelineEngine:
             content = self.recipe.pre_process_hook(content)
             
         # 2. Processamento IA
-        print(f"    [{self.recipe.name}] Processando roteiro via IA...")
-        revised_content = self.llm.ask(self.recipe.system_prompt, content)
-        return revised_content
+        if self.recipe.system_prompt:
+            print(f"    [{self.recipe.name}] Processando roteiro via IA...")
+            revised_content = self.llm.ask(self.recipe.system_prompt, content)
+            return revised_content
+        else:
+            return content
 
     # ---------------------------------------------------------
     # 3. GRAVAÇÃO (Síntese TTS)
@@ -132,6 +135,16 @@ class PipelineEngine:
     async def run_file(self, file_path: pathlib.Path, file_idx: int = 0, subfolder: str = ""):
         print(f"\n[{self.recipe.name}] Iniciando: {file_path.name}")
         
+        mp3_name = file_path.with_suffix(".mp3").name
+        dest_dir = self.recipe.drive_output_dir
+        if subfolder:
+            dest_dir = dest_dir / subfolder
+        dest_path = dest_dir / mp3_name
+
+        if dest_path.exists():
+            print(f"  [SKIP] {file_path.name} já existe no Drive.")
+            return
+
         # 1 e 2
         raw_text = file_path.read_text(encoding="utf-8", errors="replace")
         rev_text = self.process_text(raw_text)
@@ -139,7 +152,39 @@ class PipelineEngine:
         rev_path = self.rev_dir / file_path.name
         rev_path.write_text(rev_text, encoding="utf-8")
         
-        # Parse blocks (Mock simples para o motor base, cada módulo pode injetar sua lógica)
-        # O motor assume que o módulo já transformou o rev_text num formato parsed [("LOC", "texto")]
-        # Para fins de arquitetura, o método assemble recebe os blocos já limpos.
-        pass # A implementação real do parse fica nas "receitas" específicas ou helpers.
+        # 3 e 4
+        print(f"    [{self.recipe.name}] Gerando áudio e mixando...")
+        if self.recipe.parse_hook:
+            parsed_blocks = self.recipe.parse_hook(rev_text)
+        else:
+            parsed_blocks = [("LOC", rev_text)] # Fallback simples
+
+        combined_audio = await self.assemble_audio(parsed_blocks, global_voice_idx=file_idx)
+        
+        out_path = self.aud_dir / mp3_name
+        combined_audio.export(str(out_path), format="mp3", bitrate="192k")
+        
+        # 5. Distribuir
+        self.distribute(out_path, subfolder)
+
+    async def run_all(self):
+        files = sorted([f for f in self.txt_dir.glob("*.txt") if not f.name.endswith(".bak")])
+        print(f"=== {self.recipe.name}: Pipeline Integrado ===")
+        print(f"Arquivos encontrados: {len(files)}\n")
+
+        for idx, f in enumerate(files):
+            # Tentar extrair subfolder (mes) do nome do arquivo, padrão Giro
+            subfolder = ""
+            month_match = re.search(r"-(\d{2})-", f.name)
+            if month_match:
+                month_map = {"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"}
+                subfolder = month_map.get(month_match.group(1), "OUTROS")
+            elif "2025" not in f.name and "2026" not in f.name:
+                subfolder = "" # Padrão
+            
+            # Ajuste simples para o ano se estiver no nome
+            year = "2025" if "2025" in f.name else ("2026" if "2026" in f.name else "")
+            if year:
+                subfolder = f"{year}/{subfolder}" if subfolder else year
+
+            await self.run_file(f, file_idx=idx, subfolder=subfolder)

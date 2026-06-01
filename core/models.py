@@ -37,3 +37,4 @@ class ProgramRecipe:
     voice_strategy: VoiceStrategy
     assembly: AssemblyRecipe
     pre_process_hook: Optional[Callable[[str], str]] = None
+    parse_hook: Optional[Callable[[str], list]] = None

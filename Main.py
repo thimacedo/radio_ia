@@ -32,9 +32,9 @@ def menu():
         choice = input("Selecione uma opção: ").strip()
         
         if choice == '1':
-            run_script(pathlib.Path("modules/boletins/gerar_boletins_tts.py"))
+            run_script(pathlib.Path("modules/boletins/boletins_pipeline.py"))
         elif choice == '2':
-            run_script(pathlib.Path("modules/jornal/gerar_locucao_multi_speaker.py"))
+            run_script(pathlib.Path("modules/jornal/njud_pipeline.py"))
         elif choice == '3':
             run_script(pathlib.Path("modules/giro/giro_pipeline.py"))
         elif choice == '4':
