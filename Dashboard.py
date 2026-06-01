@@ -65,7 +65,7 @@ def main():
     btn_boletins = ttk.Button(
         btn_frame, 
         text="🎙️ Notícias da Hora (Boletins)", 
-        command=lambda: run_script("modules/boletins/boletins_pipeline.py", "Noticias da Hora")
+        command=lambda: run_script("modules/boletins/gerar_boletins_tts.py", "Noticias da Hora")
     )
     btn_boletins.pack(fill=tk.X, pady=5)
 

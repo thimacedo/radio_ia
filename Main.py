@@ -33,7 +33,7 @@ def menu():
         choice = input("Selecione uma opção: ").strip()
         
         if choice == '1':
-            run_script(pathlib.Path("modules/boletins/boletins_pipeline.py"))
+            run_script(pathlib.Path("modules/boletins/gerar_boletins_tts.py"))
         elif choice == '2':
             run_script(pathlib.Path("modules/jornal/njud_pipeline.py"))
         elif choice == '3':
