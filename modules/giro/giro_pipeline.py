@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import asyncio
 import pathlib
@@ -6,6 +7,13 @@ import shutil
 import io
 import edge_tts
 from pydub import AudioSegment
+
+# Ajuste de path para importar do core
+current_dir = pathlib.Path(__file__).parent
+project_root = current_dir.parent.parent
+sys.path.append(str(project_root))
+sys.path.append(str(project_root / "core"))
+
 from llm_factory import LLMFactory
 
 # ---------------------------------------------------------------------------
