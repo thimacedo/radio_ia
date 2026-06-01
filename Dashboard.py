@@ -10,18 +10,23 @@ import pathlib
 def run_script(script_relative_path, title):
     """
     Executa o script em uma nova janela de terminal para que o usuário 
-    possa ver os logs de processamento em tempo real.
+    possa ver os logs de processamento em tempo real e interagir.
     """
     script_path = pathlib.Path(script_relative_path).resolve()
     
     if not script_path.exists():
-        tk.messagebox.showerror("Erro", f"Script não encontrado:\n{script_path}")
+        from tkinter import messagebox
+        messagebox.showerror("Erro", f"Script não encontrado:\n{script_path}")
         return
 
-    # Comando para Windows: start "Titulo" cmd /c "python script.py & pause"
+    import subprocess
     python_exe = sys.executable
-    cmd = f'start "{title}" cmd /c "{python_exe} "{script_path}" & echo. & pause"'
-    os.system(cmd)
+    
+    # O uso de aspas externas extras é necessário no cmd.exe /c quando há caminhos com espaço
+    cmd = f'cmd.exe /c ""{python_exe}" "{script_path}" & pause"'
+    
+    # CREATE_NEW_CONSOLE força o Windows a abrir uma nova janela preta 100% iterativa
+    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
 # ---------------------------------------------------------------------------
 # Interface Gráfica (Dashboard)
