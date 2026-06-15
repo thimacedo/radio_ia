@@ -68,9 +68,49 @@ def fetch_excel_and_create_txts(txt_dir: pathlib.Path):
     print(f"[{count}] novos boletins extraídos da planilha.")
     return count
 
+SYSTEM_PROMPT = """Você é um especialista em edição de roteiros de rádio. Seu objetivo é processar matérias para o Boletim 'Notícias da Hora' formatando-as no padrão 'Audio-as-Text'.
+
+REGRAS:
+1. Sem formatação Markdown.
+2. Extraia o assunto principal e crie uma manchete curta (1-2 frases). Esta será a CABEÇA.
+3. O restante do texto será o OFF.
+4. O formato de edição de áudio segue o padrão 'Audio-as-Text'. Insira obrigatoriamente as tags de controle em letras maiúsculas:
+   - ANTES DA CABEÇA (início do programa): [ASSET: ABERTURA]
+   - APÓS A CABEÇA E ANTES DO OFF: [ASSET: PASSAGEM] seguido por [TRILHA: LIGAR]
+   - FIM DO PROGRAMA (após a última fala do OFF): [TRILHA: DESLIGAR] seguido por [ASSET: ENCERRAMENTO]
+5. Substituir as marcações originais de locutores por "Speaker 1: ". Não alterne locutores no Boletim.
+6. Escrever números, valores, datas e horas por extenso. Siglas separadas por espaço (ex: t j r n).
+"""
+
 def boletim_parse_hook(content: str) -> list:
-    """Para boletins, o conteúdo inteiro é locução única."""
-    return [("LOC", content)]
+    """Extrai comandos de ASSET, TRILHA e as falas (Speaker 1)."""
+    blocks = []
+    
+    for linha in content.splitlines():
+        linha = linha.strip()
+        if not linha:
+            continue
+            
+        match_asset = re.match(r'^\[ASSET:\s*(.*?)\]$', linha, re.IGNORECASE)
+        if match_asset:
+            blocks.append(("ASSET", match_asset.group(1).strip().upper()))
+            continue
+            
+        match_trilha = re.match(r'^\[TRILHA:\s*(LIGAR|DESLIGAR)\]$', linha, re.IGNORECASE)
+        if match_trilha:
+            blocks.append(("TRILHA", match_trilha.group(1).strip().upper()))
+            continue
+
+        match_loc = re.match(r'^(Speaker\s*1):\s*((?:\[.*?\])?\s*.*)$', linha, re.IGNORECASE)
+        if match_loc:
+            speaker = match_loc.group(1).lower().replace(" ", "")
+            texto = match_loc.group(2).strip()
+            texto = re.sub(r'\[.*?\]', '', texto).strip()
+            
+            if texto:
+                blocks.append(("LOC", texto)) # Boletim é inter_file, passa apenas o texto
+                
+    return blocks
 
 # ---------------------------------------------------------------------------
 # Receita do Programa
@@ -80,16 +120,13 @@ receita_boletins = ProgramRecipe(
     drive_input_dir=BOLETINS_INPUT_DIR,
     drive_output_dir=BOLETINS_OUTPUT_DIR,
     local_work_dir=LOCAL_WORK_DIR,
-    system_prompt=None, # Boletins já vêm tratados da planilha, ou podem usar um prompt simples.
+    system_prompt=SYSTEM_PROMPT,
     voice_strategy=VoiceStrategy(
         type='inter_file', # Alterna a voz a cada arquivo novo no lote
         voices=["pt-BR-FranciscaNeural", "pt-BR-AntonioNeural"]
     ),
     assembly=AssemblyRecipe(
-        intro_vht=VHT_DIR / "ABERTURA.mp3",
-        outro_vht=VHT_DIR / "ENCERRAMENTO.mp3",
-        bg_music=VHT_DIR / "EFEITO - TRILHA BOLETIM NOTICIAS DA HORA.mp3",
-        bg_volume_reduction_db=15
+        profile_path=project_root / "assets" / "profiles" / "boletim_profile.json"
     ),
     parse_hook=boletim_parse_hook
 )

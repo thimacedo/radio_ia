@@ -41,7 +41,8 @@ except ImportError as exc:
 # ---------------------------------------------------------------------------
 # Configurações — ajuste se necessário
 # ---------------------------------------------------------------------------
-CREDENTIALS_PATH = Path("e:/NJUD/credentials.json")
+project_root = Path(__file__).parent.parent
+CREDENTIALS_PATH = project_root / "archive" / "gen-lang-client-0980378916-8cc8eb1488d1.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
@@ -135,8 +136,36 @@ def export_gdoc_to_txt(
     if not gdoc_path.exists():
         raise FileNotFoundError(f"Arquivo .gdoc não encontrado: {gdoc_path}")
 
-    doc_id = _extract_doc_id(gdoc_path)
     service = _build_drive_service(credentials_path)
+
+    # Tenta extrair o ID do arquivo local
+    doc_id = None
+    try:
+        doc_id = _extract_doc_id(gdoc_path)
+    except Exception as exc:
+        print(f"  [AVISO] Não foi possível ler o ID do arquivo local '{gdoc_path.name}': {exc}")
+        print("  Tentando buscar o arquivo por nome no Google Drive via API...")
+
+    if not doc_id:
+        # Busca o ID por nome na API
+        name = gdoc_path.name
+        if name.lower().endswith(".gdoc"):
+            name = name[:-5]
+        
+        query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.document' and trashed = false"
+        results = service.files().list(
+            q=query,
+            spaces='drive',
+            fields='files(id, name)',
+            pageSize=5
+        ).execute()
+        
+        files = results.get('files', [])
+        if files:
+            doc_id = files[0]['id']
+            print(f"  [OK] Encontrado ID na nuvem: {doc_id} para o arquivo '{name}'")
+        else:
+            raise ValueError(f"Não foi possível localizar o documento '{name}' no Google Drive via API.")
 
     # Exporta o documento como texto puro
     request = service.files().export_media(

@@ -16,13 +16,10 @@ class VoiceStrategy:
 @dataclass
 class AssemblyRecipe:
     """
-    Receita de edição e montagem de áudio.
+    Receita de edição e montagem de áudio usando perfis JSON (Audio-as-Text).
     """
-    intro_vht: Optional[pathlib.Path] = None
-    outro_vht: Optional[pathlib.Path] = None
-    transition_vht: Optional[pathlib.Path] = None
-    bg_music: Optional[pathlib.Path] = None
-    bg_volume_reduction_db: int = 15
+    profile_path: Optional[pathlib.Path] = None
+
 
 @dataclass
 class ProgramRecipe:

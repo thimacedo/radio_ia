@@ -3,16 +3,23 @@ import sys
 import re
 import time
 import io
+import json
 import asyncio
 import urllib.request
 import pandas as pd
 import openpyxl
+from core.voice_queue import VoiceQueue
+from core.best_practices import retry_async, aplicar_pronuncia, carregar_env_var
 from datetime import datetime
 from pydub import AudioSegment
 
 # Certificar que o caminho do workspace está no python path para importar o processador
 workspace_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
 sys.path.append(workspace_dir)
+
+# Adicionar a pasta do jornal para importar o processador de roteiro (limpeza)
+jornal_dir = os.path.join(os.path.dirname(workspace_dir), "jornal").replace("\\", "/")
+sys.path.append(jornal_dir)
 
 try:
     from processar_roteiro_completo import limpar_texto_locutor
@@ -24,8 +31,47 @@ except ImportError:
 # Configuração de caminhos e constantes
 SPREADSHEET_ID = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
-DRIVE_DIR = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\0-BOLETINS"
+DRIVE_DIR = carregar_env_var("DRIVE_BOLETINS_DIR", r"H:/Meu Drive/RADIO TJRN CONTEÚDO/00_PRODUCAO_2026/07_MODELOS_TUTORIAIS")
 LOCAL_BOLETINS_DIR = os.path.join(workspace_dir, "boletins").replace("\\", "/")
+
+def obter_webapp_url():
+    try:
+        project_root = os.path.dirname(os.path.dirname(workspace_dir))
+        env_path = os.path.join(project_root, ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, v = line.split("=", 1)
+                        if k.strip() == "BOLETINS_WEBAPP_URL":
+                            return v.strip()
+    except Exception as e:
+        print(f"[AVISO] Falha ao carregar URL do Web App: {e}")
+    return None
+
+def enviar_atualizacoes_web_app(url, updates):
+    import urllib.error
+    payload = {
+        "action": "update_status",
+        "updates": updates
+    }
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        url, 
+        data=data, 
+        headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+    )
+    try:
+        print(f"\n[GDrive] Enviando {len(updates)} atualizações diretamente para a planilha no Google Sheets...")
+        with urllib.request.urlopen(req) as response:
+            res_content = response.read().decode('utf-8')
+            res_json = json.loads(res_content)
+            if res_json.get('status') == 'success':
+                print(f"[OK] Planilha na nuvem atualizada com sucesso: {res_json.get('message')}")
+            else:
+                print(f"[AVISO] Falha na resposta do Web App: {res_json.get('message')}")
+    except Exception as e:
+        print(f"[ERRO] Falha ao conectar com o Apps Script Web App: {e}")
 
 # Mapeamento dos meses no formato NJUD
 MONTH_MAP = {
@@ -57,18 +103,23 @@ def carregar_audio_asset(caminho, label):
     return None
 
 # Mapear iniciais do locutor para voz Edge TTS
-def obter_config_voz(locutor):
+def obter_config_voz(locutor=None):
+    """Return voice identifier and label.
+    If `locutor` matches a known explicit code, use the legacy mapping.
+    Otherwise, select the next voice from the rotating queue."""
     loc_str = str(locutor).upper() if locutor else ""
-    if "LEO" in loc_str:
-        return "pt-BR-AntonioNeural", "LEO"
-    elif "LIV" in loc_str:
-        return "pt-BR-FranciscaNeural", "LIV"
-    elif "LET" in loc_str:
-        return "pt-BR-FranciscaNeural", "LET"
-    elif "SIL" in loc_str:
-        return "pt-BR-FranciscaNeural", "SIL"
-    else:
-        return "pt-BR-FranciscaNeural", "LIV" # Default female voice
+    legacy_map = {
+        "LEO": ("pt-BR-AntonioNeural", "LEO"),
+        "LIV": ("pt-BR-FranciscaNeural", "LIV"),
+        "LET": ("pt-BR-FranciscaNeural", "LET"),
+        "SIL": ("pt-BR-FranciscaNeural", "SIL"),
+    }
+    if loc_str in legacy_map:
+        return legacy_map[loc_str]
+    # Fallback to rotating queue
+    voice = VoiceQueue().next_voice()
+    label = voice.split("-")[-1].upper().replace("NEURAL", "")
+    return voice, label
 
 # Extrair data de criação a partir das colunas do registro
 def extrair_data_registro(nome_edicao, data_criacao, caminho):
@@ -95,17 +146,49 @@ def extrair_data_registro(nome_edicao, data_criacao, caminho):
             
     return None, None, None
 
+# Baixar roteiro do Google Docs usando a API segura do Drive
+def baixar_roteiro_via_api(doc_id):
+    try:
+        core_dir = os.path.join(os.path.dirname(os.path.dirname(workspace_dir)), "core").replace("\\", "/")
+        if core_dir not in sys.path:
+            sys.path.append(core_dir)
+        from gdoc_exporter import CREDENTIALS_PATH, _build_drive_service
+        import io
+        from googleapiclient.http import MediaIoBaseDownload
+        
+        service = _build_drive_service(CREDENTIALS_PATH)
+        request = service.files().export_media(
+            fileId=doc_id,
+            mimeType="text/plain",
+        )
+        
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue().decode('utf-8', errors='replace')
+    except Exception as e:
+        print(f"      [AVISO] Erro no download via API da Conta de Serviço: {e}")
+        return None
+
 # Baixar e parsear Google Doc do roteiro
 def baixar_e_parsear_roteiro(url):
     m = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
     if not m:
         raise ValueError("URL do Google Doc inválida.")
     doc_id = m.group(1)
-    export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
     
-    req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req) as response:
-        content = response.read().decode('utf-8-sig', errors='ignore')
+    # 1. Tentar download seguro via API da Conta de Serviço
+    content = baixar_roteiro_via_api(doc_id)
+    
+    # 2. Fallback público via urllib se a API falhar
+    if not content:
+        print("      [INFO] Tentando download público via urllib...")
+        export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+        req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            content = response.read().decode('utf-8-sig', errors='ignore')
         
     lines = content.split('\n')
     cabeca_lines = []
@@ -152,21 +235,18 @@ def baixar_e_parsear_roteiro(url):
     return cabeca_text, off_text
 
 # Gerar bytes de áudio via Edge TTS com retry
+@retry_async(retries=3, backoff=1.0)
 async def gerar_tts_com_retry(text, voice, rate="+0%"):
     import edge_tts
-    for tentativa in range(3):
-        try:
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-            if audio_data:
-                return audio_data
-        except Exception as e:
-            print(f"      [AVISO] Falha na geração do áudio TTS (tentativa {tentativa+1}): {e}")
-            await asyncio.sleep(2)
-    raise Exception("Falha de rede ou de serviço com Edge TTS.")
+    text_fonetizado = aplicar_pronuncia(text)
+    communicate = edge_tts.Communicate(text_fonetizado, voice, rate=rate)
+    audio_data = b""
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_data += chunk["data"]
+    if not audio_data:
+        raise Exception("Nenhum dado de áudio retornado pelo Edge TTS.")
+    return audio_data
 
 # Mixar Mailing com Trilha de Fundo a 20% do volume original (-14 dB)
 def mixar_mailing_com_bg(mailing_audio, bg_audio):
@@ -192,6 +272,7 @@ async def processar_boletim(row_idx, row_data, assets, test_mode):
     url_doc = row_data[7]
     data_criacao_col = row_data[8]
     
+    voice_name, speaker_name = obter_config_voz(locutor_col)
     print(f"\n* Processando linha {row_idx}: {nome_arquivo}")
     
     # 1. Resolver datas e subpastas
@@ -223,7 +304,7 @@ async def processar_boletim(row_idx, row_data, assets, test_mode):
     # Verificar se já processamos localmente para evitar reprocessamento
     if os.path.exists(mailing_saida_path) and os.path.exists(edit_saida_path) and os.path.exists(txt_saida_path):
         print(f"  - {filename_base} (ignorado, áudios e texto já existem)")
-        return True
+        return speaker_name
     
     # 3. Baixar roteiro e parsear
     print(f"  -> Baixando roteiro: {url_doc[:50]}...")
@@ -243,7 +324,6 @@ async def processar_boletim(row_idx, row_data, assets, test_mode):
     off_limpa = limpar_texto_locutor(off_raw)
     
     # 5. Voz e geração TTS
-    voice_name, speaker_name = obter_config_voz(locutor_col)
     print(f"  -> Gravando com a voz '{voice_name}' (Iniciais: {speaker_name})")
     
     try:
@@ -285,23 +365,34 @@ async def processar_boletim(row_idx, row_data, assets, test_mode):
         mailing_audio.export(mailing_saida_path, format="mp3", bitrate="192k")
         print(f"  [OK] Mailing gerado em: {mailing_saida_path}")
         
-        # Montar Editada: Abertura Vignette + (Mailing mixado com BG a 20%) + Encerramento Vignette
-        print("  -> Mixando versão Editada (com Trilha de Fundo a 20% e Vinhetas)...")
+        # Montar Editada: Abertura Vignette + Cabeça + Passagem Vignette + (OFF mixado com BG a 20%) + Encerramento Vignette
+        print("  -> Mixando versão Editada (com Trilha de Fundo a 20% apenas no OFF e Vinhetas)...")
         vht_abertura = assets["vht_abertura"]
         vht_encerramento = assets["vht_encerramento"]
         bg_boletim = assets["bg_boletim"]
         
-        # Mixagem com trilha de fundo
-        mixed_speech_bg = mixar_mailing_com_bg(mailing_audio, bg_boletim)
-        
+        # Mixar apenas o OFF com a trilha de fundo se houver OFF
+        if off_seg:
+            off_mixed = mixar_mailing_com_bg(off_seg, bg_boletim)
+        else:
+            off_mixed = AudioSegment.empty()
+            
         # Concatenação final
-        edit_audio = vht_abertura + mixed_speech_bg + vht_encerramento
+        edit_audio = vht_abertura
+        if cabeca_seg and off_seg:
+            edit_audio = edit_audio + cabeca_seg + vht_passagem + off_mixed
+        elif cabeca_seg:
+            edit_audio = edit_audio + cabeca_seg
+        else:
+            edit_audio = edit_audio + off_mixed
+            
+        edit_audio = edit_audio + vht_encerramento
         
         # Exportar Editada a 192k
         edit_audio.export(edit_saida_path, format="mp3", bitrate="192k")
         print(f"  [OK] Editada gerada em: {edit_saida_path}")
         
-        return True
+        return speaker_name
     except Exception as e:
         print(f"  [ERRO] Falha no processamento ou exportação de áudio: {e}")
         return False
@@ -322,8 +413,12 @@ async def main():
         urllib.request.urlretrieve(SHEET_URL, local_xlsx)
         print(f"[OK] Planilha baixada e salva localmente como: {local_xlsx}")
     except Exception as e:
-        print(f"[ERRO] Falha ao baixar planilha de controle: {e}")
-        sys.exit(1)
+        print(f"[AVISO] Falha ao baixar planilha de controle: {e}")
+        if os.path.exists(local_xlsx):
+            print(f"[INFO] Utilizando planilha local existente '{local_xlsx}' como fallback.")
+        else:
+            print("[ERRO CRÍTICO] Falha no download e nenhuma cópia local encontrada. Abortando.")
+            sys.exit(1)
         
     # 2. Carregar a planilha com openpyxl para poder fazer atualizações
     wb = openpyxl.load_workbook(local_xlsx)
@@ -372,7 +467,8 @@ async def main():
             is_loc_pending = not locutor or '✔' not in str(locutor)
             is_edit_pending = not editor or '✔' not in str(editor)
             
-            if is_loc_pending or is_edit_pending:
+            # Se o editor for RAD, indica processamento manual e a IA ignora para evitar conflito
+            if (is_loc_pending or is_edit_pending) and not (editor and str(editor).strip().upper() == "RAD"):
                 pendencias.append((s_name, idx, r))
                 
     if not pendencias:
@@ -394,11 +490,11 @@ async def main():
     async def processar_com_sem(sheet_name, row_idx, row_data):
         async with sem:
             try:
-                processado = await processar_boletim(row_idx, row_data, assets, args.test)
-                if processado:
+                speaker_result = await processar_boletim(row_idx, row_data, assets, args.test)
+                if speaker_result:
                     # Pequeno delay pós-sucesso dentro do worker para espaçar requisições
                     await asyncio.sleep(1.0)
-                    return sheet_name, row_idx, row_data
+                    return sheet_name, row_idx, row_data, speaker_result
             except Exception as e:
                 print(f"  [ERRO] Falha crítica ao processar linha {row_idx} ({sheet_name}): {e}")
             return None
@@ -411,11 +507,9 @@ async def main():
         if res:
             sucessos += 1
             if not args.test:
-                sheet_name, row_idx, row_data = res
-                loc_val = row_data[3]
-                _, speaker_init = obter_config_voz(loc_val)
-                novo_locutor_texto = f"{speaker_init} ✔"
-                novo_editor_texto = "LET ✔"
+                sheet_name, row_idx, row_data, speaker_result = res
+                novo_locutor_texto = f"{speaker_result} ✔"
+                novo_editor_texto = "THI ✔"
                 linhas_atualizadas.append((sheet_name, row_idx, novo_locutor_texto, novo_editor_texto))
             
     print(f"\n=== PROCESSAMENTO FINALIZADO: {sucessos} de {len(pendencias)} concluídos ===")
@@ -483,6 +577,22 @@ async def main():
             sincronizar()
         except Exception as e:
             print(f"[ERRO] Falha ao executar sincronização com o Drive: {e}")
+            
+        # Enviar atualizações para a planilha na nuvem via Web App se configurado
+        webapp_url = obter_webapp_url()
+        if webapp_url:
+            updates = [
+                {
+                    "sheetName": sheet_name,
+                    "rowIdx": row_idx,
+                    "locutor": loc_txt,
+                    "editor": edit_txt
+                }
+                for sheet_name, row_idx, loc_txt, edit_txt in linhas_atualizadas
+            ]
+            enviar_atualizacoes_web_app(webapp_url, updates)
+        else:
+            print("[AVISO] BOLETINS_WEBAPP_URL não configurada no .env. Não foi possível atualizar a planilha da nuvem em tempo real.")
             
     print("\n=== PIPELINE CONCLUÍDO ===")
 

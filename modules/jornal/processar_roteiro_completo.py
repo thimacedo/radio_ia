@@ -180,6 +180,63 @@ def _converter_percentual(match) -> str:
 
 
 # ─────────────────────────────────────────────
+# CONVERSÃO DE NÚMEROS ORDINAIS
+# ─────────────────────────────────────────────
+
+_ORDINAIS_MASC = {
+    1: "primeiro", 2: "segundo", 3: "terceiro", 4: "quarto", 5: "quinto",
+    6: "sexto", 7: "sétimo", 8: "oitavo", 9: "nono",
+    10: "décimo", 20: "vigésimo", 30: "trigésimo", 40: "quadragésimo",
+    50: "quinquagésimo", 60: "sexagésimo", 70: "septuagésimo",
+    80: "octogésimo", 90: "nonagésimo",
+    100: "centésimo", 200: "duzentésimo", 300: "trezentésimo",
+    400: "quadringentésimo", 500: "quingentésimo", 600: "sexcentésimo",
+    700: "septingentésimo", 800: "octingentésimo", 900: "nongentésimo"
+}
+
+_ORDINAIS_FEM = {
+    1: "primeira", 2: "segunda", 3: "terceira", 4: "quarta", 5: "quinta",
+    6: "sexta", 7: "sétima", 8: "oitava", 9: "nona",
+    10: "décima", 20: "vigésima", 30: "trigésima", 40: "quadragésima",
+    50: "quinquagésima", 60: "sexagésima", 70: "septuagésima",
+    80: "octogésima", 90: "nonagésima",
+    100: "centésima", 200: "duzentésima", 300: "trezentésima",
+    400: "quadringentésima", 500: "quingentésima", 600: "sexcentésima",
+    700: "septingentésima", 800: "octingentésima", 900: "nongentésima"
+}
+
+def ordinal_por_extenso(n: int, feminino: bool = False) -> str:
+    """Converte inteiros de 1 a 999 para ordinais por extenso em português."""
+    if n <= 0 or n > 999:
+        return str(n) + ("ª" if feminino else "º")
+    
+    dicionario = _ORDINAIS_FEM if feminino else _ORDINAIS_MASC
+    
+    if n in dicionario:
+        return dicionario[n]
+        
+    partes = []
+    c = (n // 100) * 100
+    d = ((n % 100) // 10) * 10
+    u = n % 10
+    
+    if c:
+        partes.append(dicionario[c])
+    if d:
+        partes.append(dicionario[d])
+    if u:
+        partes.append(dicionario[u])
+        
+    return " ".join(partes)
+
+def _converter_ordinal(match) -> str:
+    num = int(match.group(1))
+    simbolo = match.group(2)
+    feminino = (simbolo == "ª")
+    return ordinal_por_extenso(num, feminino)
+
+
+# ─────────────────────────────────────────────
 # SIGLAS
 # ─────────────────────────────────────────────
 
@@ -257,6 +314,8 @@ def limpar_texto_locutor(texto: str) -> str:
     texto = re.sub(r"([\d.,]+)\s*%", _converter_percentual, texto)
     # 7. Converter datas inline: 04/05, 16/04/2026
     texto = re.sub(r"\b\d{1,2}[/\-]\d{1,2}(?:[/\-]\d{2,4})?\b", _converter_data_inline, texto)
+    # 7.5. Converter ordinais: 11º, 11°, 2ª
+    texto = re.sub(r"\b(\d{1,3})\s*([º°ª])", _converter_ordinal, texto)
     # 8. Converter números isolados (até 6 dígitos) que não façam parte de palavras
     texto = re.sub(r"(?<!\w)\d{1,6}(?!\w)", _converter_numero_solto, texto)
     # 9. Soletra siglas maiúsculas conhecidas (2-5 letras)

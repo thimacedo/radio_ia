@@ -1,2 +1,5 @@
 @echo off
-start "" pythonw Dashboard.py
+cd /d "%~dp0"
+.venv\Scripts\python.exe -m streamlit run Dashboard.py
+pause
+

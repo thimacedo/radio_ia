@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import json
 import asyncio
 import pathlib
 import shutil
@@ -8,6 +9,7 @@ import edge_tts
 from pydub import AudioSegment
 from .llm_factory import LLMFactory
 from .models import ProgramRecipe
+from .best_practices import retry_async, aplicar_pronuncia
 
 class PipelineEngine:
     """
@@ -50,70 +52,138 @@ class PipelineEngine:
     # ---------------------------------------------------------
     # 3. GRAVAÇÃO (Síntese TTS)
     # ---------------------------------------------------------
+    @retry_async(retries=3, backoff=1.0)
     async def synthesize_chunk(self, text: str, voice: str) -> bytes:
-        for attempt in range(3):
-            try:
-                communicate = edge_tts.Communicate(text, voice)
-                audio_data = b""
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio": 
-                        audio_data += chunk["data"]
-                return audio_data
-            except Exception as e:
-                print(f"      [!] Falha TTS ({attempt+1}/3): {e}")
-                if attempt < 2: await asyncio.sleep(3 ** attempt)
-        raise Exception("Falha persistente no TTS.")
+        # Aplicar pronúncia fonética nas siglas antes de enviar ao Edge TTS
+        text_fonetizado = aplicar_pronuncia(text)
+        communicate = edge_tts.Communicate(text_fonetizado, voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio": 
+                audio_data += chunk["data"]
+        if not audio_data:
+            raise Exception("Nenhum dado de áudio retornado pelo Edge TTS.")
+        return audio_data
 
     # ---------------------------------------------------------
-    # 4. EDIÇÃO (Montagem Pydub)
+    # 4. EDIÇÃO (Montagem Pydub - Audio as Text)
     # ---------------------------------------------------------
     async def assemble_audio(self, parsed_blocks: list, global_voice_idx: int = 0) -> AudioSegment:
         combined = AudioSegment.empty()
         
-        # Abertura
-        if self.recipe.assembly.intro_vht and self.recipe.assembly.intro_vht.exists():
-            combined += AudioSegment.from_mp3(str(self.recipe.assembly.intro_vht))
+        # Carregar Perfil (JSON)
+        profile = {}
+        if self.recipe.assembly.profile_path and self.recipe.assembly.profile_path.exists():
+            with open(self.recipe.assembly.profile_path, 'r', encoding='utf-8') as f:
+                profile = json.load(f)
+                
+        assets_map = profile.get("assets", {})
+        trilhas_map = profile.get("trilhas", {})
+        config = profile.get("configuracoes_mixagem", {
+            "volume_bg_base": -5,
+            "volume_bg_ducking": -18,
+            "tempo_fade_in_ms": 2000,
+            "tempo_fade_out_ms": 3000,
+            "reduzir_bg_durante_fala": True
+        })
 
         # Estratégia de Vozes
         voices = self.recipe.voice_strategy.voices
         is_intra = self.recipe.voice_strategy.type == 'intra_file'
-        
         current_voice = voices[global_voice_idx % len(voices)] if not is_intra else None
+        
+        # Controle de Trilha de Fundo (BG)
+        bg_audio = None
+        bg_active = False
+        speech_timeline = AudioSegment.empty() # Para calcular o tamanho exato da fala sob a trilha
 
+        # Loop de Construção (Audio-as-Text)
         for kind, content in parsed_blocks:
-            if kind == "VHT":
-                if content == "[Vh passagem]" and self.recipe.assembly.transition_vht:
-                    combined += AudioSegment.from_mp3(str(self.recipe.assembly.transition_vht))
-                # Outras vinhetas mapeadas internamente podem ser adicionadas aqui
+            if kind == "ASSET":
+                asset_key = content.strip()
+                asset_path = assets_map.get(asset_key)
+                
+                # Se há uma trilha tocando, precisamos mixar o speech_timeline acumulado antes de colar o asset (para o asset não ficar sobre a trilha, conforme regra do usuário)
+                if bg_active and len(speech_timeline) > 0:
+                    # Cortar e mixar trilha
+                    bg_snippet = bg_audio[:len(speech_timeline)]
+                    if config["reduzir_bg_durante_fala"]:
+                        bg_snippet = bg_snippet + config["volume_bg_ducking"]
+                    else:
+                        bg_snippet = bg_snippet + config["volume_bg_base"]
+                        
+                    bg_snippet = bg_snippet.fade_in(config["tempo_fade_in_ms"]).fade_out(config["tempo_fade_out_ms"])
+                    mixed_speech = speech_timeline.overlay(bg_snippet)
+                    combined += mixed_speech
+                    
+                    # Resetar state da trilha para a próxima fala
+                    speech_timeline = AudioSegment.empty()
+                    bg_audio = bg_audio[len(speech_timeline):] # avança a agulha da trilha
+                
+                # Inserir o Asset puro (sem BG por cima)
+                if asset_path and os.path.exists(asset_path):
+                    asset_segment = AudioSegment.from_mp3(asset_path)
+                    
+                    # Se não havia BG ativo, o speech acumulado vai seco mesmo
+                    if not bg_active and len(speech_timeline) > 0:
+                        combined += speech_timeline
+                        speech_timeline = AudioSegment.empty()
+                        
+                    combined += asset_segment
+                else:
+                    print(f"      [!] Aviso: Asset '{asset_key}' não encontrado no caminho: {asset_path}")
+            
+            elif kind == "TRILHA":
+                cmd = content.strip().upper()
+                if cmd == "LIGAR":
+                    bg_path = trilhas_map.get("BG_PADRAO")
+                    if bg_path and os.path.exists(bg_path):
+                        bg_audio = AudioSegment.from_mp3(bg_path)
+                        # Loop mágico para garantir que o BG seja gigantesco
+                        bg_audio = bg_audio * 10 
+                        bg_active = True
+                elif cmd == "DESLIGAR":
+                    if bg_active and len(speech_timeline) > 0:
+                        bg_snippet = bg_audio[:len(speech_timeline)]
+                        bg_snippet = bg_snippet + config["volume_bg_ducking"]
+                        bg_snippet = bg_snippet.fade_out(config["tempo_fade_out_ms"])
+                        
+                        mixed_speech = speech_timeline.overlay(bg_snippet)
+                        combined += mixed_speech
+                        speech_timeline = AudioSegment.empty()
+                    bg_active = False
             
             elif kind == "LOC":
                 if is_intra:
-                    # Alterna vozes dentro do bloco baseado na tag (ex: speaker1, speaker2)
                     speaker_id, texto = content
                     idx = 0 if speaker_id == "speaker1" else 1
                     voz = voices[idx % len(voices)]
                 else:
-                    # Voz única definida para o arquivo inteiro
                     texto = content
                     voz = current_voice
                 
                 audio_bytes = await self.synthesize_chunk(texto, voz)
-                combined += AudioSegment.from_mp3(io.BytesIO(audio_bytes))
+                loc_segment = AudioSegment.from_mp3(io.BytesIO(audio_bytes))
+                
+                # Adiciona pequeno respiro
+                silence = AudioSegment.silent(duration=500)
+                loc_segment += silence
+                
+                if bg_active:
+                    speech_timeline += loc_segment
+                else:
+                    combined += loc_segment
 
-        # Encerramento
-        if self.recipe.assembly.outro_vht and self.recipe.assembly.outro_vht.exists():
-            combined += AudioSegment.from_mp3(str(self.recipe.assembly.outro_vht))
-            
-        # Trilha de Fundo (BG)
-        if self.recipe.assembly.bg_music and self.recipe.assembly.bg_music.exists():
-            bg = AudioSegment.from_mp3(str(self.recipe.assembly.bg_music))
-            bg = bg - self.recipe.assembly.bg_volume_reduction_db
-            # Loop bg se for menor que a locução
-            while len(bg) < len(combined):
-                bg += bg
-            # Cortar BG do tamanho da locução e fazer fade out
-            bg = bg[:len(combined)].fade_out(2000)
-            combined = combined.overlay(bg)
+        # Limpeza final se sobrou fala solta
+        if len(speech_timeline) > 0:
+            if bg_active:
+                bg_snippet = bg_audio[:len(speech_timeline)]
+                bg_snippet = bg_snippet + config["volume_bg_ducking"]
+                bg_snippet = bg_snippet.fade_out(config["tempo_fade_out_ms"])
+                mixed_speech = speech_timeline.overlay(bg_snippet)
+                combined += mixed_speech
+            else:
+                combined += speech_timeline
 
         return combined
 
@@ -135,7 +205,8 @@ class PipelineEngine:
     async def run_file(self, file_path: pathlib.Path, file_idx: int = 0, subfolder: str = ""):
         print(f"\n[{self.recipe.name}] Iniciando: {file_path.name}")
         
-        mp3_name = file_path.with_suffix(".mp3").name
+        clean_name = file_path.stem.replace("_bruto", "").replace("_revisado", "").strip()
+        mp3_name = f"{clean_name}.mp3"
         dest_dir = self.recipe.drive_output_dir
         if subfolder:
             dest_dir = dest_dir / subfolder

@@ -1,0 +1,18 @@
+{
+  "nome_programa": "Boletim Notícias da Hora",
+  "assets": {
+    "ABERTURA": "assets/vht/BOL - VHT - ABERTURA.mp3",
+    "ENCERRAMENTO": "assets/vht/BOL - VHT - ENCERRAMENTO.mp3",
+    "PASSAGEM": "assets/vht/BOL - VHT - PASSAGEM.mp3"
+  },
+  "trilhas": {
+    "BG_PADRAO": "assets/vht/BOL - BG.mp3"
+  },
+  "configuracoes_mixagem": {
+    "volume_bg_base": -8,
+    "volume_bg_ducking": -15,
+    "tempo_fade_in_ms": 1500,
+    "tempo_fade_out_ms": 2500,
+    "reduzir_bg_durante_fala": true
+  }
+}

@@ -14,7 +14,9 @@ class LLMFactory:
         # Fila dinâmica de provedores. A ordem inicial importa (mais rápidos/baratos primeiro).
         self.providers = [
             {"name": "GROQ", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
-            {"name": "OPENROUTER", "base_url": "https://openrouter.ai/api/v1", "model": "google/gemini-2.0-flash-001"},
+            {"name": "DEEPSEEK", "base_url": "https://api.deepseek.com", "model": "deepseek-chat"},
+            {"name": "MISTRAL", "base_url": "https://api.mistral.ai/v1", "model": "mistral-large-latest"},
+            {"name": "OPENROUTER", "base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
             {"name": "OPENAI", "base_url": None, "model": "gpt-4o-mini"},
             {"name": "GEMINI", "base_url": None, "model": "gemini-1.5-flash"}
         ]
@@ -24,7 +26,8 @@ class LLMFactory:
         
     def _load_keys(self):
         keys = {}
-        env_path = pathlib.Path(r"E:\NJUD\.env")
+        project_root = pathlib.Path(__file__).parent.parent
+        env_path = project_root / ".env"
         if env_path.exists():
             content = env_path.read_text(encoding="utf-8")
             for line in content.splitlines():

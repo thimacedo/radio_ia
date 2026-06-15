@@ -1,14 +1,19 @@
 # Sistema de Automação de Rádio TJRN
 
-Este repositório foi reestruturado em módulos para facilitar a manutenção e expansão das ferramentas de rádio da Rádio Justiça Potiguar.
+Este repositório foi organizado usando a metodologia 5S para facilitar a manutenção e expansão das ferramentas de rádio da Justiça Potiguar.
 
-## 🗂️ Estrutura Modular
+## 🗂️ Arquitetura do Projeto (Padrão 5S)
 
-O sistema está dividido em 3 grandes domínios:
+*   **`core/`**: Motor central de processamento (`engine.py`, `llm_factory.py`, conectores). Lógica compartilhada entre todos os programas.
+*   **`modules/`**: Domínios específicos de cada programa. Cada módulo possui seus próprios scripts e uma pasta local `workspace/` para processamento de arquivos.
+*   **`assets/vht/`**: Repositório central padronizado para todas as vinhetas e trilhas (BG) utilizadas nas montagens de áudio.
+*   **`archive/`**: Arquivo morto seguro para scripts legados, testes antigos e histórico de anos anteriores (ex: 2025).
 
-1.  **[Notícias da Hora](./modules/boletins/)**: Boletins que trazem as últimas notícias do Poder Judiciário.
-2.  **[Notícias do Judiciário (NJUD)](./modules/jornal/)**: Jornal diário que traz os destaques entre as últimas notícias do Poder Judiciário.
-3.  **[Giro nas Comarcas](./modules/giro/)**: Um giro pelas comarcas de todo o Rio Grande do Norte para acompanhar as novidades, mudanças, eventos e fatos relevantes da Justiça Potiguar. Programa semanal.
+### 🎙️ Módulos de Programas
+
+1.  **[Notícias da Hora](./modules/boletins/)**: Boletins informativos em formato curto.
+2.  **[Notícias do Judiciário (NJUD)](./modules/jornal/)**: Jornal diário com bancada virtual simulada.
+3.  **[Giro nas Comarcas](./modules/giro/)**: Programa semanal com novidades das comarcas potiguares.
 
 ---
 

@@ -1,0 +1,18 @@
+{
+  "nome_programa": "Notícias do Judiciário (NJUD)",
+  "assets": {
+    "ABERTURA": "assets/vht/NJUD - VHT - ABERTURA.mp3",
+    "ENCERRAMENTO": "assets/vht/NJUD - VHT - ENCERRAMENTO.mp3",
+    "PASSAGEM": "assets/vht/NJUD - VHT - PASSAGEM.mp3"
+  },
+  "trilhas": {
+    "BG_PADRAO": "assets/vht/NJUD - BG.mp3"
+  },
+  "configuracoes_mixagem": {
+    "volume_bg_base": -5,
+    "volume_bg_ducking": -18,
+    "tempo_fade_in_ms": 2000,
+    "tempo_fade_out_ms": 3000,
+    "reduzir_bg_durante_fala": true
+  }
+}
