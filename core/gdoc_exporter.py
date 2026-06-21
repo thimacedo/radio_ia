@@ -11,6 +11,10 @@ Uso direto:
 Uso como módulo:
     from gdoc_exporter import export_gdoc_to_txt
     texto = export_gdoc_to_txt(Path("arquivo.gdoc"))
+
+Uso com cache (recomendado para o agente):
+    from gdoc_exporter import export_gdoc_to_txt_cached
+    texto = export_gdoc_to_txt_cached(doc_id="...", credentials_path=...)
 """
 
 from __future__ import annotations
@@ -117,6 +121,21 @@ def _extract_doc_id(gdoc_path: Path) -> str:
     )
 
 
+def _download_doc_content(doc_id: str, service, encoding: str = "utf-8") -> str:
+    """Baixa o conteúdo de um doc_id específico via Drive API."""
+    request = service.files().export_media(
+        fileId=doc_id,
+        mimeType="text/plain",
+    )
+    with tempfile.TemporaryFile() as tmp:
+        downloader = MediaIoBaseDownload(tmp, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        tmp.seek(0)
+        return tmp.read().decode(encoding, errors="replace")
+
+
 def export_gdoc_to_txt(
     gdoc_path: Path,
     credentials_path: Path = CREDENTIALS_PATH,
@@ -164,7 +183,7 @@ def export_gdoc_to_txt(
         name = gdoc_path.name
         if name.lower().endswith(".gdoc"):
             name = name[:-5]
-        
+
         query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.document' and trashed = false"
         results = service.files().list(
             q=query,
@@ -172,7 +191,7 @@ def export_gdoc_to_txt(
             fields='files(id, name)',
             pageSize=5
         ).execute()
-        
+
         files = results.get('files', [])
         if files:
             doc_id = files[0]['id']
@@ -180,21 +199,53 @@ def export_gdoc_to_txt(
         else:
             raise ValueError(f"Não foi possível localizar o documento '{name}' no Google Drive via API.")
 
-    # Exporta o documento como texto puro
-    request = service.files().export_media(
-        fileId=doc_id,
-        mimeType="text/plain",
-    )
+    return _download_doc_content(doc_id, service, encoding)
 
-    # Usa um arquivo temporário para receber o stream
-    with tempfile.TemporaryFile() as tmp:
-        downloader = MediaIoBaseDownload(tmp, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        tmp.seek(0)
-        content = tmp.read().decode(encoding, errors="replace")
 
+def export_gdoc_to_txt_cached(
+    doc_id: str,
+    credentials_path: Path = CREDENTIALS_PATH,
+    encoding: str = "utf-8",
+    cache_ttl_s: int = 3600,
+) -> str:
+    """
+    Versão com cache do export. Recebe o doc_id diretamente (sem arquivo .gdoc).
+
+    Se o conteúdo estiver em cache e não expirado, retorna do cache.
+    Caso contrário, baixa do Drive e salva no cache.
+
+    Parâmetros
+    ----------
+    doc_id : str
+        ID do documento no Google Drive.
+    credentials_path : Path
+        Caminho para o JSON de credenciais.
+    encoding : str
+        Codificação de decodificação.
+    cache_ttl_s : int
+        Tempo de vida do cache em segundos (padrão: 3600 = 1 hora).
+
+    Retorna
+    -------
+    str
+        Conteúdo textual do documento.
+    """
+    # Lazy import para não criar dependência circular
+    from core.doc_cache import get_cache
+
+    cache = get_cache(db_path=project_root / "data" / "doc_cache.db", ttl_seconds=cache_ttl_s)
+
+    # Tenta cache primeiro
+    cached = cache.get(doc_id, max_age_s=cache_ttl_s)
+    if cached is not None:
+        return cached
+
+    # Cache miss — baixa do Drive
+    service = _build_drive_service(credentials_path)
+    content = _download_doc_content(doc_id, service, encoding)
+
+    # Salva no cache
+    cache.set(doc_id, content)
     return content
 
 
@@ -215,3 +266,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Erro: {e}", file=sys.stderr)
         sys.exit(1)
+

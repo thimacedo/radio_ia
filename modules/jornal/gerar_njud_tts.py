@@ -16,7 +16,8 @@ sys.path.append(current_dir)
 
 from core.llm_factory import LLMFactory
 from processar_roteiro_completo import limpar_texto_locutor
-from core.best_practices import carregar_env_var, MONTH_MAP_SHORT
+from core.best_practices import carregar_env_var
+from core.constants import MONTH_MAP_SHORT, MONTH_MAP_FULL, ANO_SHORT, extrair_mes_num_de_caminho
 
 DRIVE_ROOT = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
 
@@ -91,10 +92,6 @@ def obter_id_documento(url):
     if m:
         return m.group(1)
     return None
-
-def extrair_linhas_fala(texto_revisado):
-    return lines_to_falas(texto_revisado.splitlines())
-
 
 def lines_to_falas(linhas):
     falas = []
@@ -447,39 +444,23 @@ async def main():
     # 3. Inicializar fábrica de IA
     llm = LLMFactory()
     
-    # Mapeamento de meses para pastas do Google Drive
-    MONTH_MAP = {
-        1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
-        5: "5 - MAIO", 6: "6 - JUNHO", 7: "7 - JULHO", 8: "8 - AGOSTO",
-        9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
-    }
-
     def obter_caminho_mes(refer_val):
+        """Resolve o caminho do mês a partir de um valor de referência."""
         if not refer_val:
-            return "6 - JUNHO"
+            return MONTH_MAP_FULL.get(6, "6 - JUNHO")
         if isinstance(refer_val, datetime.datetime):
-            return MONTH_MAP.get(refer_val.month, "6 - JUNHO")
-        refer_str = str(refer_val).strip()
-        if "JUNHO" in refer_str.upper() or refer_str.startswith("6 "):
-            return "6 - JUNHO"
-        elif "MAIO" in refer_str.upper() or refer_str.startswith("5 "):
-            return "5 - MAIO"
-        elif "ABRIL" in refer_str.upper() or refer_str.startswith("4 "):
-            return "4 - ABRIL"
-        elif "MARÇO" in refer_str.upper() or refer_str.startswith("3 "):
-            return "3 - MARÇO"
-        elif "FEVEREIRO" in refer_str.upper() or refer_str.startswith("2 "):
-            return "2 - FEVEREIRO"
-        elif "JANEIRO" in refer_str.upper() or refer_str.startswith("1 "):
-            return "1 - JANEIRO"
-        
-        m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
+            return MONTH_MAP_FULL.get(refer_val.month, "6 - JUNHO")
+        # Tenta extrair o número do mês da string
+        import re as _re
+        m = _re.search(r"(\d{4})[-/](\d{2})[-/]", str(refer_val))
         if m:
-            return MONTH_MAP.get(int(m.group(2)), "6 - JUNHO")
-        m2 = re.search(r'(\d{2})[-/](\d{2})[-/](\d{4})', refer_str)
+            return MONTH_MAP_FULL.get(int(m.group(2)), "6 - JUNHO")
+        m2 = _re.search(r"(\d{2})[-/](\d{2})[-/]", str(refer_val))
         if m2:
-            return MONTH_MAP.get(int(m2.group(2)), "6 - JUNHO")
-        return refer_str
+            return MONTH_MAP_FULL.get(int(m2.group(1)), "6 - JUNHO")
+        # Usa o helper de constants se nada casar
+        mes_num = extrair_mes_num_de_caminho(str(refer_val))
+        return MONTH_MAP_FULL.get(mes_num, "6 - JUNHO")
 
     def obter_sufixo_data(refer_val):
         if not refer_val:
@@ -586,12 +567,7 @@ async def main():
         query_folders = "'1UHYp4SCterbUJF27MHj3bOh6ju1OBzIG' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         folders = service_drive.files().list(q=query_folders, fields="files(id, name)").execute().get('files', [])
         
-        # Mapeamento de meses
-        MONTH_MAP = {
-            1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
-            5: "5 - MAIO", 6: "6 - JUNHO", 7: "7 - JULHO", 8: "8 - AGOSTO",
-            9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
-        }
+        # MONTH_MAP já vem de core.constants (MONTH_MAP_FULL)
         
         def obter_sufixo_data_do_conteudo(texto_roteiro):
             if not texto_roteiro:
@@ -615,7 +591,7 @@ async def main():
             if not m_caminho:
                 continue
             mes_num = int(m_caminho.group(1))
-            caminho_col = MONTH_MAP.get(mes_num, "6 - JUNHO")
+            caminho_col = MONTH_MAP_FULL.get(mes_num, "6 - JUNHO")
             
             # Limitar apenas aos meses relevantes (atual, anterior e futuros de 2026) para evitar buscas excessivas
             current_month = datetime.datetime.now().month
@@ -749,7 +725,7 @@ async def main():
                     mes_num = int(m_mes.group(1))
                     
                 short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
-                folder_name = f"{mes_num:02d} - {short_name} - 26"
+                folder_name = f"{mes_num:02d} - {short_name} - {ANO_SHORT}"
                 
                 drive_5s_base = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
                 drive_5s_mailing_dir = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name).replace("\\", "/")

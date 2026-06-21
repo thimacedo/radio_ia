@@ -638,3 +638,22 @@ Premium              U2.6 Cache Docs                              U4.6 Aprovaç�
 ```
 
 **Prioridade absoluta antes de qualquer fase:** corrigir os 6 bugs da análise técnica (B1–B6), especialmente B1 (typo `load_load_workbook`) e B3 (agulha BG não avança).
+
+---
+
+## ✅ Implementado em 21/06/2026 (v2.1)
+
+### Arquitetura — Melhorias Estruturais
+- **[U1.1]** `core/constants.py` criado — todas as constantes de data/calendário centralizadas
+- **[D1]** `MONTH_MAP` duplicado 3× removido de `gerar_njud_tts.py`
+- **[D4]** If/elif cascata de `obter_caminho_mes` substituído por lookup table `MONTH_MAP_FULL`
+- **Ambiente** `agente_ia.py` e `gerar_njud_tts.py` agora importam de `core.constants`
+
+### Código Morto
+- **[D2]** `extrair_linhas_fala()` removido de `gerar_njud_tts.py` (wrapper redundante)
+
+### Portabilidade
+- **[D3]** `gerar_locucao_giro_premium.py` agora usa `carregar_env_var()` com fallback
+
+### Resiliência
+- **[O9]** Lockfile implementado em `agente_ia.py` — impede execução sobreposta com verificação de PID

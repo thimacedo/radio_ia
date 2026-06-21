@@ -7,6 +7,7 @@ import argparse
 import subprocess
 import shutil
 import gc
+import pathlib
 from datetime import datetime, date
 import openpyxl
 
@@ -42,7 +43,8 @@ SPREADSHEET_ID_BOLETINS = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SPREADSHEET_ID_NJUD = "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec"
 
 try:
-    from core.best_practices import carregar_env_var, MONTH_MAP_SHORT, MONTH_MAP_FULL, WEEKDAYS_PT
+    from core.best_practices import carregar_env_var
+    from core.constants import MONTH_MAP_SHORT, MONTH_MAP_FULL, WEEKDAYS_PT, ANO_SHORT, folder_name_5s
 except ImportError:
     def carregar_env_var(chave, fallback=""):
         return fallback
@@ -78,6 +80,42 @@ try:
         push_available = True
 except Exception as e:
     print(f"[AVISO] Notificador Push não pôde ser inicializado: {e}")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Lockfile — impede execuções sobrepostas do agente
+# ──────────────────────────────────────────────────────────────────────────────
+LOCK_FILE = os.path.join(current_dir, ".agente.lock").replace("\\", "/")
+
+def adquirir_lock() -> bool:
+    """Retorna True se conseguiu adquirir o lock; False se já existe instância rodando."""
+    if os.path.exists(LOCK_FILE):
+        try:
+            pid = int(pathlib.Path(LOCK_FILE).read_text().strip())
+            # Verificar se o processo ainda está vivo
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                print(f"[LOCK] Agente já em execução (PID {pid}). Abortando esta instância.")
+                return False
+        except (ValueError, FileNotFoundError, OSError):
+            pass  # Lock órfão — sobrescrever
+    pathlib.Path(LOCK_FILE).write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+def liberar_lock():
+    """Libera o lock na saída (chamado via atexit ou no finally)."""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
+
+import atexit
+atexit.register(liberar_lock)
+
 
 def enviar_notificacao(metodo: str, *args, **kwargs):
     if wa_available and notificador_wa:
@@ -653,12 +691,12 @@ def verificar_e_atualizar_planilha_njud(drive_service):
         print("  Nenhum novo áudio pendente de marcação na planilha NJUD.")
 
 def obter_caminho_mes_njud_5s(caminho_col):
+    """Retorna o nome da pasta 5S a partir de uma referência de mês."""
     mes_num = 6
     m_mes = re.search(r'(\d+)', caminho_col)
     if m_mes:
         mes_num = int(m_mes.group(1))
-    short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
-    return f"{mes_num:02d} - {short_name} - 26"
+    return folder_name_5s(mes_num, ANO_SHORT)
 
 
 def run_agent_once(drive_service):
@@ -723,9 +761,14 @@ def main():
     # Inicializar serviço Google Drive
     drive_service = obter_google_drive_service()
     if not drive_service:
-        print("[CRÍTICO] Falha ao autenticar o serviço da API do Google Drive.")
+        print("[CRÍTICO] Falha ao autenticar o serviço do Google Drive.")
         sys.exit(1)
-        
+
+    # Verificar lock antes de rodar
+    if not adquirir_lock():
+        print("[LOCK] Interrompendo para evitar conflito com instância em execução.")
+        sys.exit(0)
+
     if args.once:
         run_agent_once(drive_service)
     elif args.daemon:
