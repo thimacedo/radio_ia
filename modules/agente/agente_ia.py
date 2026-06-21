@@ -7,7 +7,7 @@ import argparse
 import subprocess
 import shutil
 import gc
-from datetime import datetime
+from datetime import datetime, date
 import openpyxl
 
 # Corrigir encodificação de console no Windows para evitar quedas por caracteres unicode (ex: ✔)
@@ -37,23 +37,45 @@ try:
 except ImportError:
     llm_available = False
 
+try:
+    from core.notificador_whatsapp import NotificadorWhatsApp
+    notificador = NotificadorWhatsApp()
+    wa_available = True
+except Exception as e:
+    print(f"[AVISO] Notificador WhatsApp não carregado: {e}")
+    wa_available = False
+
+
 # Configurações
 SPREADSHEET_ID_BOLETINS = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SPREADSHEET_ID_NJUD = "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec"
-CREDENTIALS_PATH = os.path.join(project_root, "archive", "gen-lang-client-0980378916-8cc8eb1488d1.json").replace("\\", "/")
-LOG_PATH = "H:/Meu Drive/RADIO TJRN CONTEÚDO/00_PRODUCAO_2026/LOG_ACOES_5S.md"
-NJUD_DRIVE_BASE = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\00_PRODUCAO_2026\02_JORNAIS_NJUD"
 
-# Mapeamentos do Calendário de 2026
-WEEKDAYS_PT = {
-    0: "SEG", 1: "TER", 2: "QUA", 3: "QUI", 4: "SEX", 5: "SAB", 6: "DOM"
-}
+try:
+    from core.best_practices import carregar_env_var, MONTH_MAP_SHORT, MONTH_MAP_FULL, WEEKDAYS_PT
+except ImportError:
+    def carregar_env_var(chave, fallback):
+        return fallback
+    MONTH_MAP_SHORT = {
+        1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR", 5: "MAI", 6: "JUN",
+        7: "JUL", 8: "AGO", 9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ"
+    }
+    MONTH_MAP_FULL = {
+        1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
+        5: "5 - MAIO",    6: "6 - JUNHO",     7: "7 - JULHO",  8: "8 - AGOSTO",
+        9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
+    }
+    WEEKDAYS_PT = {0: "SEG", 1: "TER", 2: "QUA", 3: "QUI", 4: "SEX", 5: "SAB", 6: "DOM"}
 
-MONTH_MAP = {
-    1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
-    5: "5 - MAIO", 6: "6 - JUNHO", 7: "7 - JULHO", 8: "8 - AGOSTO",
-    9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
-}
+DEFAULT_CREDS_REL = carregar_env_var("GOOGLE_APPLICATION_CREDENTIALS", "config/credentials/gen-lang-client-0980378916-8cc8eb1488d1.json")
+CREDENTIALS_PATH = os.path.join(project_root, DEFAULT_CREDS_REL).replace("\\", "/")
+if not os.path.exists(CREDENTIALS_PATH):
+    CREDENTIALS_PATH = os.path.join(project_root, "archive", "gen-lang-client-0980378916-8cc8eb1488d1.json").replace("\\", "/")
+
+DRIVE_ROOT = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
+DRIVE_MOUNT = os.path.dirname(DRIVE_ROOT) if "/" in DRIVE_ROOT or "\\" in DRIVE_ROOT else "H:/Meu Drive"
+LOG_PATH = f"{DRIVE_ROOT}/00_PRODUCAO_2026/LOG_ACOES_5S.md"
+NJUD_DRIVE_BASE = f"{DRIVE_ROOT}/00_PRODUCAO_2026/02_JORNAIS_NJUD"
+
 
 def atualizar_status_dashboard(status, progresso, step_atual=""):
     try:
@@ -82,7 +104,7 @@ def registrar_log_5s(mensagem):
     except Exception as e_local:
         print(f"[AVISO] Falha ao gravar log local: {e_local}")
         
-    if os.path.exists("H:/Meu Drive"):
+    if os.path.exists(DRIVE_MOUNT):
         try:
             if not os.path.exists(LOG_PATH):
                 with open(LOG_PATH, "w", encoding="utf-8") as f:
@@ -90,16 +112,16 @@ def registrar_log_5s(mensagem):
             with open(LOG_PATH, "a", encoding="utf-8") as f:
                 f.write(log_entry)
         except Exception as e:
-            print(f"[AVISO] Falha ao gravar log no Drive H: {e}")
+            print(f"[AVISO] Falha ao gravar log no Drive: {e}")
     else:
-        print("[AVISO] Unidade H: indisponível para registro de log físico.")
+        print(f"[AVISO] Unidade de Drive ({DRIVE_MOUNT}) indisponível para registro de log físico.")
 
 def verificar_e_montar_drive():
-    if os.path.exists("H:/Meu Drive"):
-        print("[Resiliência] Google Drive (H:) detectado e acessível.")
+    if os.path.exists(DRIVE_MOUNT):
+        print(f"[Resiliência] Google Drive ({DRIVE_MOUNT}) detectado e acessível.")
         return True
         
-    print("[Resiliência] Google Drive (H:) não encontrado. Tentando localizar o Google Drive Desktop...")
+    print(f"[Resiliência] Google Drive ({DRIVE_MOUNT}) não encontrado. Tentando localizar o Google Drive Desktop...")
     
     possiveis_exes = []
     base_dir = r"C:\Program Files\Google\Drive File Stream"
@@ -128,8 +150,8 @@ def verificar_e_montar_drive():
         print("[Resiliência] Processo inicializado. Aguardando montagem (até 15s)...")
         for i in range(15):
             time.sleep(1)
-            if os.path.exists("H:/Meu Drive"):
-                registrar_log_5s("Google Drive (H:) montado com sucesso via auto-mount.")
+            if os.path.exists(DRIVE_MOUNT):
+                registrar_log_5s(f"Google Drive ({DRIVE_MOUNT}) montado com sucesso via auto-mount.")
                 return True
     except Exception as e:
         print(f"[Resiliência] Erro ao iniciar Google Drive Desktop: {e}")
@@ -448,67 +470,54 @@ def analisar_e_corrigir_planilha_boletins(drive_service):
         
     return True
 
+def _run_pipeline(nome: str, script_path: str, progress: float) -> bool:
+    atualizar_status_dashboard("Executando", progress, f"Executando pipeline de {nome}...")
+    print(f"  -> Iniciando {nome}: {script_path}")
+    try:
+        res = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='ignore'
+        )
+        print(f"----- {nome} Output -----")
+        print(res.stdout)
+        if res.stderr:
+            print(f"----- {nome} Errors -----")
+            print(res.stderr)
+        ok = res.returncode == 0
+        if ok:
+            registrar_log_5s(f"Pipeline de {nome} concluído com sucesso.")
+        else:
+            registrar_log_5s(f"AVISO: Pipeline de {nome} falhou com código de saída {res.returncode}.")
+        return ok
+    except Exception as e:
+        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de {nome}: {e}")
+        return False
+
 def executar_pipelines():
     print("\n[Agente] Disparando pipelines de gravação física (subprocessos)...")
     
-    # 1. Boletins
-    atualizar_status_dashboard("Executando", 0.40, "Executando pipeline de Boletins...")
     script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
-    print(f"  -> Iniciando Boletins: {script_boletins}")
-    try:
-        res = subprocess.run([sys.executable, script_boletins], capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        print("----- Boletins Output -----")
-        print(res.stdout)
-        if res.stderr:
-            print("----- Boletins Errors -----")
-            print(res.stderr)
-        if res.returncode == 0:
-            registrar_log_5s("Pipeline de Boletins concluído com sucesso.")
-        else:
-            registrar_log_5s(f"AVISO: Pipeline de Boletins falhou com código de saída {res.returncode}.")
-    except Exception as e:
-        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Boletins: {e}")
-        
-    # 2. NJUD (Jornal)
-    atualizar_status_dashboard("Executando", 0.60, "Executando pipeline do Jornal NJUD...")
+    boletins_ok = _run_pipeline("Boletins", script_boletins, 0.40)
+    
     script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
-    print(f"  -> Iniciando NJUD: {script_njud}")
-    try:
-        res = subprocess.run([sys.executable, script_njud], capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        print("----- NJUD Output -----")
-        print(res.stdout)
-        if res.stderr:
-            print("----- NJUD Errors -----")
-            print(res.stderr)
-        if res.returncode == 0:
-            registrar_log_5s("Pipeline de Jornal NJUD concluído com sucesso.")
-        else:
-            registrar_log_5s(f"AVISO: Pipeline de Jornal NJUD falhou com código de saída {res.returncode}.")
-    except Exception as e:
-        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Jornal NJUD: {e}")
-
-    # 3. Giro nas Comarcas
-    atualizar_status_dashboard("Executando", 0.80, "Executando pipeline do Giro nas Comarcas...")
+    njud_ok = _run_pipeline("Jornal NJUD", script_njud, 0.60)
+    
     script_giro = os.path.join(project_root, "modules/giro/giro_pipeline.py").replace("\\", "/")
-    print(f"  -> Iniciando Giro nas Comarcas: {script_giro}")
-    try:
-        res = subprocess.run([sys.executable, script_giro], capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        print("----- Giro Output -----")
-        print(res.stdout)
-        if res.stderr:
-            print("----- Giro Errors -----")
-            print(res.stderr)
-        if res.returncode == 0:
-            registrar_log_5s("Pipeline de Giro nas Comarcas concluído com sucesso.")
-        else:
-            registrar_log_5s(f"AVISO: Pipeline de Giro nas Comarcas falhou com código de saída {res.returncode}.")
-    except Exception as e:
-        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Giro: {e}")
+    giro_ok = _run_pipeline("Giro nas Comarcas", script_giro, 0.80)
+
+    return {
+        "boletins": boletins_ok,
+        "njud": njud_ok,
+        "giro": giro_ok
+    }
 
 def obter_sufixo_data_njud(refer_val):
     if not refer_val:
         return ""
-    if isinstance(refer_val, (datetime, datetime.date)):
+    if isinstance(refer_val, (datetime, date)):
         return refer_val.strftime("%d-%m")
     refer_str = str(refer_val).strip()
     m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
@@ -522,24 +531,19 @@ def obter_sufixo_data_njud(refer_val):
 def obter_caminho_mes_njud(refer_val):
     if not refer_val:
         return "6 - JUNHO"
-    refer_str = str(refer_val).strip()
-    if "JUNHO" in refer_str.upper() or refer_str.startswith("6 "):
-        return "6 - JUNHO"
-    elif "MAIO" in refer_str.upper() or refer_str.startswith("5 "):
-        return "5 - MAIO"
-    elif "ABRIL" in refer_str.upper() or refer_str.startswith("4 "):
-        return "4 - ABRIL"
-    elif "MARÇO" in refer_str.upper() or refer_str.startswith("3 "):
-        return "3 - MARÇO"
-    elif "FEVEREIRO" in refer_str.upper() or refer_str.startswith("2 "):
-        return "2 - FEVEREIRO"
-    elif "JANEIRO" in refer_str.upper() or refer_str.startswith("1 "):
-        return "1 - JANEIRO"
-        
+    refer_str = str(refer_val).strip().upper()
+    
+    # Busca correspondência direta com o nome do mês na tabela unificada
+    for mes_num, mes_full in MONTH_MAP_FULL.items():
+        nome_mes = mes_full.split(" - ")[1].upper()
+        if nome_mes in refer_str or refer_str.startswith(f"{mes_num} "):
+            return mes_full
+            
     m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
     if m:
-        return MONTH_MAP.get(int(m.group(2)), "6 - JUNHO")
-    return refer_str
+        return MONTH_MAP_FULL.get(int(m.group(2)), "6 - JUNHO")
+    return refer_val
+
 
 def verificar_e_atualizar_planilha_njud(drive_service):
     print("\n[Agente] Auditando planilha de jornais (NJUD) no Google Drive...")
@@ -601,7 +605,7 @@ def verificar_e_atualizar_planilha_njud(drive_service):
             
             # Caminho físico no drive tradicional
             drive_audio_path_trad = os.path.join(
-                r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026",
+                DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026",
                 caminho_col, "EDITADOS", f"{nome_final}.mp3"
             ).replace("\\", "/")
             
@@ -628,12 +632,9 @@ def obter_caminho_mes_njud_5s(caminho_col):
     m_mes = re.search(r'(\d+)', caminho_col)
     if m_mes:
         mes_num = int(m_mes.group(1))
-    MONTH_MAP_SHORT = {
-        1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR", 5: "MAI", 6: "JUN",
-        7: "JUL", 8: "AGO", 9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ"
-    }
     short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
     return f"{mes_num:02d} - {short_name} - 26"
+
 
 def run_agent_once(drive_service):
     try:
@@ -641,12 +642,25 @@ def run_agent_once(drive_service):
         print("=== AGENTE DE IA DA RÁDIO TJRN - INICIANDO EXECUÇÃO ===")
         print("="*60)
         
+        if wa_available:
+            try:
+                notificador.notificar_inicio("Agente IA")
+            except Exception as e_notif:
+                print(f"[AVISO] Falha ao notificar início: {e_notif}")
+        
         atualizar_status_dashboard("Executando", 0.05, "Iniciando verificação do Google Drive...")
         # 1. Verificar GDrive
         if not verificar_e_montar_drive():
-            print("[CRÍTICO] Abortando execução devido a falta do Drive H:.")
-            atualizar_status_dashboard("Erro", 0.0, "Erro: Google Drive H: não montado.")
+            print(f"[CRÍTICO] Abortando execução devido a falta do Drive ({DRIVE_MOUNT}).")
+            atualizar_status_dashboard("Erro", 0.0, f"Erro: Google Drive ({DRIVE_MOUNT}) não montado.")
+            if wa_available:
+                try:
+                    notificador.notificar_drive_offline()
+                except Exception as e_notif:
+                    print(f"[AVISO] Falha ao notificar drive offline: {e_notif}")
             return
+            
+        t_start = time.time()
             
         atualizar_status_dashboard("Executando", 0.20, "Corrigindo inconsistências na planilha de Boletins...")
         # 2. Corrigir inconsistências
@@ -654,20 +668,41 @@ def run_agent_once(drive_service):
             analisar_e_corrigir_planilha_boletins(drive_service)
             
         # 3. Executar scripts originais (Fallback)
-        executar_pipelines()
+        pipeline_status = executar_pipelines()
         
         atualizar_status_dashboard("Executando", 0.90, "Auditando e atualizando planilha do NJUD...")
         # 4. Auditar e fechar planilhas locais
         if drive_service:
             verificar_e_atualizar_planilha_njud(drive_service)
         
+        duration = time.time() - t_start
+        
         atualizar_status_dashboard("Sucesso", 1.0, "Execução finalizada com sucesso.")
         print("\n" + "="*60)
         print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
         print("="*60)
+        
+        if wa_available:
+            try:
+                # Obter status booleanos e duracao total
+                notificador.notificar_relatorio_diario({
+                    "boletins": {"ok": pipeline_status.get("boletins", False), "count": 0},
+                    "njud":     {"ok": pipeline_status.get("njud", False), "count": 0},
+                    "giro":     {"ok": pipeline_status.get("giro", False), "count": 0},
+                    "conflitos_corrigidos": 0,
+                    "duracao_total_s": duration
+                })
+            except Exception as e_notif:
+                print(f"[AVISO] Falha ao enviar relatório diário: {e_notif}")
+                
     except Exception as e:
         print(f"[ERRO CRÍTICO] Execução do agente falhou: {e}")
         atualizar_status_dashboard("Erro", 1.0, f"Falha na execução: {e}")
+        if wa_available:
+            try:
+                notificador.notificar_erro("Agente IA", str(e))
+            except Exception as e_notif:
+                print(f"[AVISO] Falha ao notificar erro: {e_notif}")
 
 def main():
     parser = argparse.ArgumentParser(description="Agente de IA supervisor da Rádio TJRN.")

@@ -6,3 +6,5 @@ __pycache__/
 *.wav
 *.log
 agente_status.json
+.env
+config/credentials/

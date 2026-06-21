@@ -148,7 +148,7 @@ async def main():
         return
 
     print(f"Arquivos para processar: {len(files)}")
-    print(f"Voz: {VOICE}\n")
+    print(f"Vozes: {VOZ_SPEAKER_1} / {VOZ_SPEAKER_2}\n")
 
     for f in files:
         await process_file(f)

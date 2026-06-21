@@ -13,6 +13,7 @@ sys.path.append(str(project_root))
 
 from core.models import ProgramRecipe, VoiceStrategy, AssemblyRecipe
 from core.engine import PipelineEngine
+from core.best_practices import carregar_env_var
 
 # ---------------------------------------------------------------------------
 # Configuração
@@ -20,16 +21,10 @@ from core.engine import PipelineEngine
 SPREADSHEET_ID = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
 BOLETINS_INPUT_DIR = current_dir # Excel é baixado aqui
-BOLETINS_OUTPUT_DIR = pathlib.Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\0-BOLETINS")
+DRIVE_ROOT = pathlib.Path(carregar_env_var("DRIVE_ROOT", r"H:\Meu Drive\RADIO TJRN CONTEÚDO"))
+BOLETINS_OUTPUT_DIR = DRIVE_ROOT / "0-BOLETINS"
 LOCAL_WORK_DIR = current_dir / "workspace"
 VHT_DIR = project_root / "assets" / "vht"
-
-# Mapeamento dos meses no formato NJUD
-MONTH_MAP = {
-    1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
-    5: "5 - MAIO", 6: "6 - JUNHO", 7: "7 - JULHO", 8: "8 - AGOSTO",
-    9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
-}
 
 # ---------------------------------------------------------------------------
 # Processador Excel -> TXT
@@ -41,7 +36,7 @@ def fetch_excel_and_create_txts(txt_dir: pathlib.Path):
     import urllib.request
     urllib.request.urlretrieve(SHEET_URL, local_xlsx)
     
-    wb = openpyxl.load_load_workbook(local_xlsx, data_only=True) if hasattr(openpyxl, "load_workbook") else openpyxl.load_workbook(local_xlsx, data_only=True)
+    wb = openpyxl.load_workbook(local_xlsx, data_only=True)
     
     sheets_to_process = [s for s in wb.sheetnames if "JANEIRO" in s.upper() or "FEVEREIRO" in s.upper() or "MARÇO" in s.upper() or "ABRIL" in s.upper() or "MAIO" in s.upper() or "JUNHO" in s.upper()]
     

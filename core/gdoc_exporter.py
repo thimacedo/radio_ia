@@ -42,7 +42,20 @@ except ImportError as exc:
 # Configurações — ajuste se necessário
 # ---------------------------------------------------------------------------
 project_root = Path(__file__).parent.parent
-CREDENTIALS_PATH = project_root / "archive" / "gen-lang-client-0980378916-8cc8eb1488d1.json"
+
+try:
+    from core.best_practices import carregar_env_var
+except ImportError:
+    try:
+        from best_practices import carregar_env_var
+    except ImportError:
+        def carregar_env_var(chave, fallback):
+            return fallback
+
+DEFAULT_CREDS_REL = carregar_env_var("GOOGLE_APPLICATION_CREDENTIALS", "config/credentials/gen-lang-client-0980378916-8cc8eb1488d1.json")
+CREDENTIALS_PATH = project_root / DEFAULT_CREDS_REL
+if not CREDENTIALS_PATH.exists():
+    CREDENTIALS_PATH = project_root / "archive" / "gen-lang-client-0980378916-8cc8eb1488d1.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",

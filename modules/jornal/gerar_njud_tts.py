@@ -5,6 +5,7 @@ import io
 import asyncio
 import urllib.request
 import openpyxl
+import shutil
 from pydub import AudioSegment
 
 # Certificar caminhos corretos no python path
@@ -15,12 +16,15 @@ sys.path.append(current_dir)
 
 from core.llm_factory import LLMFactory
 from processar_roteiro_completo import limpar_texto_locutor
+from core.best_practices import carregar_env_var, MONTH_MAP_SHORT
+
+DRIVE_ROOT = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
 
 # Configurações
-PATH_PLANILHA = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026.xlsx"
+PATH_PLANILHA = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026.xlsx").replace("\\", "/")
 LOCAL_WORKSPACE = os.path.join(current_dir, "workspace").replace("\\", "/")
 GLOBAL_VHT_DIR = os.path.join(project_root, "assets/vht").replace("\\", "/")
-DRIVE_BASE_DIR = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026"
+DRIVE_BASE_DIR = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026").replace("\\", "/")
 
 def baixar_roteiro_via_api(doc_id):
     try:
@@ -89,18 +93,8 @@ def obter_id_documento(url):
     return None
 
 def extrair_linhas_fala(texto_revisado):
-    falas = []
-    for linha in texto_revisado.splitlines():
-        linha = linha.strip()
-        if not linha:
-            continue
-        match = re.match(r'^(Speaker\s*[12]):\s*(?:\[.*?\])?\s*(.*)$', linha, re.IGNORECASE)
-        if match:
-            speaker = match.group(1).lower().replace(" ", "")
-            texto = match.group(2).strip()
-            if texto:
-                falas.append((speaker, texto))
-    return falas
+    return lines_to_falas(texto_revisado.splitlines())
+
 
 def lines_to_falas(linhas):
     falas = []
@@ -736,14 +730,12 @@ async def main():
             
             # Copiar áudio tradicional
             if os.path.exists(local_audio_file):
-                import shutil
                 shutil.copy2(local_audio_file, drive_audio_path)
                 print(f"  [ÁUDIO] Copiado para o Drive (Tradicional): {drive_audio_path}")
                 total_sincronizados += 1
                 
             # Copiar texto tradicional
             if os.path.exists(local_txt_file):
-                import shutil
                 shutil.copy2(local_txt_file, drive_txt_path)
                 print(f"  [ROTEIRO] Copiado para o Drive (Tradicional): {drive_txt_path}")
                 total_sincronizados += 1
@@ -756,14 +748,10 @@ async def main():
                 if m_mes:
                     mes_num = int(m_mes.group(1))
                     
-                MONTH_MAP_SHORT = {
-                    1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR", 5: "MAI", 6: "JUN",
-                    7: "JUL", 8: "AGO", 9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ"
-                }
                 short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
                 folder_name = f"{mes_num:02d} - {short_name} - 26"
                 
-                drive_5s_base = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\00_PRODUCAO_2026\02_JORNAIS_NJUD"
+                drive_5s_base = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
                 drive_5s_mailing_dir = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name).replace("\\", "/")
                 drive_5s_roteiros_dir = os.path.join(drive_5s_base, "01_ROTEIROS", folder_name).replace("\\", "/")
                 

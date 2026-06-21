@@ -115,10 +115,10 @@ class PipelineEngine:
                     bg_snippet = bg_snippet.fade_in(config["tempo_fade_in_ms"]).fade_out(config["tempo_fade_out_ms"])
                     mixed_speech = speech_timeline.overlay(bg_snippet)
                     combined += mixed_speech
-                    
                     # Resetar state da trilha para a próxima fala
+                    consumed = len(speech_timeline)
                     speech_timeline = AudioSegment.empty()
-                    bg_audio = bg_audio[len(speech_timeline):] # avança a agulha da trilha
+                    bg_audio = bg_audio[consumed:] # avança a agulha da trilha
                 
                 # Inserir o Asset puro (sem BG por cima)
                 if asset_path and os.path.exists(asset_path):

@@ -14,7 +14,7 @@ sys.path.append(str(project_root))
 from core.models import ProgramRecipe, VoiceStrategy, AssemblyRecipe
 from core.engine import PipelineEngine
 from core.gdoc_exporter import export_gdoc_to_txt
-from core.best_practices import carregar_env_var
+from core.best_practices import carregar_env_var, MONTH_MAP_SHORT
 
 # ---------------------------------------------------------------------------
 # Configuração
@@ -142,9 +142,9 @@ receita_giro = ProgramRecipe(
     local_work_dir=LOCAL_WORK_DIR,
     system_prompt=SYSTEM_PROMPT,
     voice_strategy=VoiceStrategy(
-    type='intra_file',
-    voices=["pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-BR-ElzaNeural", "pt-BR-ThalitaNeural"]
-),
+        type='intra_file',
+        voices=["pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-BR-ElzaNeural", "pt-BR-ThalitaNeural"]
+    ),
     assembly=AssemblyRecipe(
         profile_path=project_root / "assets" / "profiles" / "giro_profile.json"
     ),
@@ -161,11 +161,7 @@ if __name__ == "__main__":
         print("\nIniciando o processamento dos roteiros na pasta local 1_txt_bruto do Giro...")
         files = sorted([f for f in motor.txt_dir.glob("*.txt") if not f.name.endswith(".bak")])
         
-        month_map_giro = {
-            "01": "1 - JAN", "02": "2 - FEV", "03": "3 - MAR", "04": "4 - ABR",
-            "05": "5 - MAI", "06": "6 - JUN", "07": "7 - JUL", "08": "8 - AGO",
-            "09": "9 - SET", "10": "10 - OUT", "11": "11 - NOV", "12": "12 - DEZ"
-        }
+        month_map_giro = {f"{k:02d}": f"{k} - {v}" for k, v in MONTH_MAP_SHORT.items()}
         
         for idx, f in enumerate(files):
             subfolder = ""
