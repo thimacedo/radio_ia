@@ -74,16 +74,22 @@ class NotificadorPush:
         tags: list[str] | None = None,
         tentativas: int = 3,
     ) -> bool:
-        url = f"{self.url}/{self.topico}"
+        # Quando publicamos via JSON, enviamos um POST para o root URL (ex: https://ntfy.sh)
+        url = self.url
         req = urllib.request.Request(url, method="POST")
-        req.add_header("Content-Type", "text/plain; charset=utf-8")
-        req.add_header("Title",    titulo)
-        req.add_header("Priority", prioridade)
-        if tags:
-            req.add_header("Tags", ",".join(tags))
+        req.add_header("Content-Type", "application/json; charset=utf-8")
         self._autenticar(req)
 
-        dados = mensagem.encode("utf-8")
+        payload = {
+            "topic": self.topico,
+            "message": mensagem,
+            "title": titulo,
+            "priority": prioridade
+        }
+        if tags:
+            payload["tags"] = tags
+
+        dados = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
         for tentativa in range(1, tentativas + 1):
             try:
