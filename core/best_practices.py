@@ -83,7 +83,7 @@ def aplicar_pronuncia(texto: str) -> str:
         
     return texto
 
-def carregar_env_var(chave: str, fallback: str) -> str:
+def carregar_env_var(chave: str, fallback: str = "") -> str:
     """Lê uma variável de ambiente do arquivo .env com fallback do valor padrão."""
     core_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(core_dir)
