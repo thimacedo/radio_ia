@@ -414,7 +414,7 @@ async def main():
     
     # 1. Baixar a planilha controle atualizada
     print(f"\nBaixando planilha de produção a partir do Drive...")
-    local_xlsx = "BOLETINS_2026.xlsx"
+    local_xlsx = os.path.join(workspace_dir, "BOLETINS_2026.xlsx").replace("\\", "/")
     try:
         urllib.request.urlretrieve(SHEET_URL, local_xlsx)
         print(f"[OK] Planilha baixada e salva localmente como: {local_xlsx}")
