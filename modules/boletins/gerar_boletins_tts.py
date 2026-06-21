@@ -79,6 +79,36 @@ def enviar_atualizacoes_web_app(url, updates):
     except Exception as e:
         print(f"[ERRO] Falha ao conectar com o Apps Script Web App: {e}")
 
+def enviar_trigger_sync_web_app(url, sheet_names):
+    import urllib.error
+    if not sheet_names:
+        sheet_names = [None]
+    for sheet_name in sheet_names:
+        payload = {
+            "action": "trigger_sync"
+        }
+        if sheet_name:
+            payload["sheetName"] = sheet_name
+            
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+        )
+        try:
+            desc = f"para a aba: {sheet_name}" if sheet_name else "para o mês atual"
+            print(f"\n[GDrive] Disparando webhook de sincronização da planilha {desc}...")
+            with urllib.request.urlopen(req) as response:
+                res_content = response.read().decode('utf-8')
+                res_json = json.loads(res_content)
+                if res_json.get('status') == 'success':
+                    print(f"[OK] Sincronização executada com sucesso: {res_json.get('message')}")
+                else:
+                    print(f"[AVISO] Falha na resposta da sincronização: {res_json.get('message')}")
+        except Exception as e:
+            print(f"[ERRO] Falha ao conectar para disparar a sincronização: {e}")
+
 # Mapeamento dos meses no formato NJUD
 MONTH_MAP = {
     1: "1 - JANEIRO",
@@ -607,6 +637,10 @@ async def main():
                 for sheet_name, row_idx, loc_txt, edit_txt in linhas_atualizadas
             ]
             enviar_atualizacoes_web_app(webapp_url, updates)
+            
+            # Disparar a sincronização da planilha via Webhook após atualizar
+            sheet_names_unicas = list(set([sheet_name for sheet_name, _, _, _ in linhas_atualizadas]))
+            enviar_trigger_sync_web_app(webapp_url, sheet_names_unicas)
         else:
             print("[AVISO] BOLETINS_WEBAPP_URL não configurada no .env. Não foi possível atualizar a planilha da nuvem em tempo real.")
             
