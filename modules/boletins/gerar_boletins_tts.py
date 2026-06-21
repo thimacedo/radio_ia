@@ -124,8 +124,16 @@ def obter_config_voz(locutor=None):
         return legacy_map[loc_str]
     # Fallback to rotating queue
     voice = VoiceQueue().next_voice()
-    label = voice.split("-")[-1].upper().replace("NEURAL", "")
+    # Mapear as vozes de rotação para o padrão de nomenclatura (LEO, LIV, LET)
+    voice_to_label = {
+        "pt-BR-AntonioNeural": "LEO",
+        "pt-BR-FranciscaNeural": "LIV",
+        "pt-BR-ElzaNeural": "LET",
+        "pt-BR-ThalitaNeural": "LET",
+    }
+    label = voice_to_label.get(voice, "LIV")
     return voice, label
+
 
 # Extrair data de criação a partir das colunas do registro
 def extrair_data_registro(nome_edicao, data_criacao, caminho):
