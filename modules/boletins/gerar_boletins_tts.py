@@ -1,5 +1,19 @@
 import os
 import sys
+
+# Certificar caminhos corretos no python path antes de importar core
+workspace_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
+project_root = os.path.dirname(os.path.dirname(workspace_dir)).replace("\\", "/")
+if project_root not in sys.path:
+    sys.path.append(project_root)
+if workspace_dir not in sys.path:
+    sys.path.append(workspace_dir)
+
+# Adicionar a pasta do jornal para importar o processador de roteiro (limpeza)
+jornal_dir = os.path.join(os.path.dirname(workspace_dir), "jornal").replace("\\", "/")
+if jornal_dir not in sys.path:
+    sys.path.append(jornal_dir)
+
 import re
 import time
 import io
@@ -12,14 +26,6 @@ from core.voice_queue import VoiceQueue
 from core.best_practices import retry_async, aplicar_pronuncia, carregar_env_var
 from datetime import datetime
 from pydub import AudioSegment
-
-# Certificar que o caminho do workspace está no python path para importar o processador
-workspace_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
-sys.path.append(workspace_dir)
-
-# Adicionar a pasta do jornal para importar o processador de roteiro (limpeza)
-jornal_dir = os.path.join(os.path.dirname(workspace_dir), "jornal").replace("\\", "/")
-sys.path.append(jornal_dir)
 
 try:
     from processar_roteiro_completo import limpar_texto_locutor

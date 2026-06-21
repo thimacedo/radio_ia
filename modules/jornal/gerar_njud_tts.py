@@ -623,8 +623,14 @@ async def main():
             mes_num = int(m_caminho.group(1))
             caminho_col = MONTH_MAP.get(mes_num, "6 - JUNHO")
             
-            # Limitar apenas aos meses recentes (ex: Maio e Junho, meses 5 e 6) para evitar buscas excessivas
-            if mes_num not in [5, 6]:
+            # Limitar apenas aos meses relevantes (atual, anterior e futuros de 2026) para evitar buscas excessivas
+            current_month = datetime.datetime.now().month
+            prev_month = current_month - 1 if current_month > 1 else 12
+            active_months = [current_month, prev_month]
+            for m in range(current_month + 1, 13):
+                active_months.append(m)
+                
+            if mes_num not in active_months:
                 continue
                 
             query_docs = f"'{folder['id']}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false"

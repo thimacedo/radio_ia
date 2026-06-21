@@ -74,7 +74,7 @@ st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2933/2933245.png", widt
 
 pagina = st.sidebar.radio(
     "Navegação",
-    ["🎛️ Produção", "⚙️ Configurar Programas", "✍️ Estilo Editorial", "🔑 Conexões e API"],
+    ["🎛️ Produção", "🕵️ Acompanhamento do Agente", "⚙️ Configurar Programas", "✍️ Estilo Editorial", "🔑 Conexões e API"],
     label_visibility="collapsed"
 )
 
@@ -137,6 +137,103 @@ if pagina == "🎛️ Produção":
 
                 st.toast("Processamento em lote finalizado!", icon="✅")
                 st.balloons()
+
+# -------------------------------------------------------------------
+# PÁGINA 1.5: ACOMPANHAMENTO DO AGENTE
+# -------------------------------------------------------------------
+
+elif pagina == "🕵️ Acompanhamento do Agente":
+    st.title("🕵️ Acompanhamento do Agente de IA")
+    st.write("Monitore em tempo real as atividades, andamento e logs do agente supervisor da rádio.")
+
+    # Status e Progresso
+    status_file = pathlib.Path("modules/agente/agente_status.json")
+    log_file = pathlib.Path("modules/agente/agente_ia.log")
+    
+    status_data = {"status": "Inativo", "progress": 0.0, "step": "Sem atividades recentes.", "last_update": "N/A"}
+    if status_file.exists():
+        try:
+            with open(status_file, "r", encoding="utf-8") as f:
+                status_data = json.load(f)
+        except Exception:
+            pass
+
+    # Layout de Status em Cards
+    col1, col2, col3 = st.columns(3)
+    
+    status_value = status_data.get("status", "Inativo")
+    if status_value == "Executando":
+        col1.metric("Status Atual", "🏃 Executando", delta="Em progresso")
+    elif status_value == "Sucesso":
+        col1.metric("Status Atual", "✅ Sucesso", delta="Última execução OK")
+    elif status_value == "Erro":
+        col1.metric("Status Atual", "🚨 Erro", delta="Verifique os logs", delta_color="inverse")
+    else:
+        col1.metric("Status Atual", "💤 Inativo", delta="Aguardando gatilho")
+        
+    col2.metric("Progresso Geral", f"{int(status_data.get('progress', 0.0) * 100)}%")
+    col3.metric("Última Atualização", status_data.get("last_update", "N/A"))
+
+    # Barra de progresso visual
+    st.markdown("### Andamento da Atividade")
+    st.progress(status_data.get("progress", 0.0), text=status_data.get("step", ""))
+
+    st.markdown("---")
+
+    # Controles
+    col_btn1, col_btn2 = st.columns([1, 4])
+    
+    # Executar Agente de IA
+    if col_btn1.button("🚀 Iniciar Agente", type="primary", disabled=(status_value == "Executando")):
+        st.toast("Disparando o Agente em segundo plano...", icon="🚀")
+        try:
+            import subprocess
+            # Usando python do venv e rodando unbuffered para o log escrever em tempo real
+            python_exe = str(pathlib.Path(".venv/Scripts/python.exe").resolve())
+            agent_script = str(pathlib.Path("modules/agente/agente_ia.py").resolve())
+            
+            # Limpa o status antigo para iniciar do zero
+            status_data = {"status": "Executando", "progress": 0.05, "step": "Disparando processo do agente...", "last_update": "Agora"}
+            with open(status_file, "w", encoding="utf-8") as f:
+                json.dump(status_data, f, indent=4)
+                
+            # Executa como processo separado desvinculado (detached)
+            if os.name == 'nt':
+                # Windows detached process flags
+                DETACHED_PROCESS = 0x00000008
+                subprocess.Popen(
+                    [python_exe, "-u", agent_script, "--once"],
+                    creationflags=DETACHED_PROCESS,
+                    close_fds=True
+                )
+            else:
+                subprocess.Popen(
+                    [python_exe, "-u", agent_script, "--once"],
+                    close_fds=True
+                )
+            st.toast("Agente disparado com sucesso!", icon="✅")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao iniciar o agente: {e}")
+
+    # Forçar Atualização
+    if col_btn2.button("🔄 Atualizar Painel"):
+        st.rerun()
+
+    # Visualizador de Logs
+    st.markdown("### 📋 Logs de Execução Recentes")
+    if log_file.exists():
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            # Exibe as últimas 50 linhas
+            recent_logs = "".join(lines[-50:])
+            st.code(recent_logs, language="log")
+        except Exception as e:
+            st.error(f"Erro ao ler os logs locais: {e}")
+    else:
+        st.info("Nenhum log local gravado ainda pelo agente.")
 
 # -------------------------------------------------------------------
 # PÁGINA 2: CONFIGURAR PROGRAMAS (Pastas e Vozes)

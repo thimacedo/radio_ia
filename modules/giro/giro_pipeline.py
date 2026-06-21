@@ -180,6 +180,13 @@ if __name__ == "__main__":
                 mes_pasta = month_map_giro.get(mes_num, "")
                 if mes_pasta:
                     subfolder = f"{ano}/{mes_pasta}"
+            else:
+                # Fallback para o mês/ano atual para manter a organização 5S
+                from datetime import datetime
+                now = datetime.now()
+                mes_num = f"{now.month:02d}"
+                mes_pasta = month_map_giro.get(mes_num, "6 - JUN")
+                subfolder = f"{now.year}/{mes_pasta}"
             
             await motor.run_file(f, file_idx=idx, subfolder=subfolder)
             

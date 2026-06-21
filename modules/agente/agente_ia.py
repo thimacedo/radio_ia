@@ -55,11 +55,33 @@ MONTH_MAP = {
     9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
 }
 
+def atualizar_status_dashboard(status, progresso, step_atual=""):
+    try:
+        status_path = os.path.join(current_dir, "agente_status.json").replace("\\", "/")
+        data = {
+            "last_update": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "status": status,
+            "progress": progresso,
+            "step": step_atual
+        }
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"[AVISO] Falha ao atualizar status para dashboard: {e}")
+
 def registrar_log_5s(mensagem):
     timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     log_entry = f"*   **{timestamp}**: {mensagem}\n"
     print(f"[Agente 5S] {mensagem}")
     
+    # Gravar localmente para o Dashboard poder ler
+    try:
+        local_log = os.path.join(current_dir, "agente_ia.log").replace("\\", "/")
+        with open(local_log, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {mensagem}\n")
+    except Exception as e_local:
+        print(f"[AVISO] Falha ao gravar log local: {e_local}")
+        
     if os.path.exists("H:/Meu Drive"):
         try:
             if not os.path.exists(LOG_PATH):
@@ -429,6 +451,8 @@ def analisar_e_corrigir_planilha_boletins(drive_service):
 def executar_pipelines():
     print("\n[Agente] Disparando pipelines de gravação física (subprocessos)...")
     
+    # 1. Boletins
+    atualizar_status_dashboard("Executando", 0.40, "Executando pipeline de Boletins...")
     script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
     print(f"  -> Iniciando Boletins: {script_boletins}")
     try:
@@ -438,10 +462,15 @@ def executar_pipelines():
         if res.stderr:
             print("----- Boletins Errors -----")
             print(res.stderr)
-        registrar_log_5s("Pipeline de Boletins concluído com sucesso.")
+        if res.returncode == 0:
+            registrar_log_5s("Pipeline de Boletins concluído com sucesso.")
+        else:
+            registrar_log_5s(f"AVISO: Pipeline de Boletins falhou com código de saída {res.returncode}.")
     except Exception as e:
         registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Boletins: {e}")
         
+    # 2. NJUD (Jornal)
+    atualizar_status_dashboard("Executando", 0.60, "Executando pipeline do Jornal NJUD...")
     script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
     print(f"  -> Iniciando NJUD: {script_njud}")
     try:
@@ -451,9 +480,30 @@ def executar_pipelines():
         if res.stderr:
             print("----- NJUD Errors -----")
             print(res.stderr)
-        registrar_log_5s("Pipeline de Jornal NJUD concluído com sucesso.")
+        if res.returncode == 0:
+            registrar_log_5s("Pipeline de Jornal NJUD concluído com sucesso.")
+        else:
+            registrar_log_5s(f"AVISO: Pipeline de Jornal NJUD falhou com código de saída {res.returncode}.")
     except Exception as e:
         registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Jornal NJUD: {e}")
+
+    # 3. Giro nas Comarcas
+    atualizar_status_dashboard("Executando", 0.80, "Executando pipeline do Giro nas Comarcas...")
+    script_giro = os.path.join(project_root, "modules/giro/giro_pipeline.py").replace("\\", "/")
+    print(f"  -> Iniciando Giro nas Comarcas: {script_giro}")
+    try:
+        res = subprocess.run([sys.executable, script_giro], capture_output=True, text=True, encoding='utf-8', errors='ignore')
+        print("----- Giro Output -----")
+        print(res.stdout)
+        if res.stderr:
+            print("----- Giro Errors -----")
+            print(res.stderr)
+        if res.returncode == 0:
+            registrar_log_5s("Pipeline de Giro nas Comarcas concluído com sucesso.")
+        else:
+            registrar_log_5s(f"AVISO: Pipeline de Giro nas Comarcas falhou com código de saída {res.returncode}.")
+    except Exception as e:
+        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Giro: {e}")
 
 def obter_sufixo_data_njud(refer_val):
     if not refer_val:
@@ -586,36 +636,45 @@ def obter_caminho_mes_njud_5s(caminho_col):
     return f"{mes_num:02d} - {short_name} - 26"
 
 def run_agent_once(drive_service):
-    print("\n" + "="*60)
-    print("=== AGENTE DE IA DA RÁDIO TJRN - INICIANDO EXECUÇÃO ===")
-    print("="*60)
-    
-    # 1. Verificar GDrive
-    if not verificar_e_montar_drive():
-        print("[CRÍTICO] Abortando execução devido a falta do Drive H:.")
-        return
+    try:
+        print("\n" + "="*60)
+        print("=== AGENTE DE IA DA RÁDIO TJRN - INICIANDO EXECUÇÃO ===")
+        print("="*60)
         
-    # 2. Corrigir inconsistências
-    if drive_service:
-        analisar_e_corrigir_planilha_boletins(drive_service)
+        atualizar_status_dashboard("Executando", 0.05, "Iniciando verificação do Google Drive...")
+        # 1. Verificar GDrive
+        if not verificar_e_montar_drive():
+            print("[CRÍTICO] Abortando execução devido a falta do Drive H:.")
+            atualizar_status_dashboard("Erro", 0.0, "Erro: Google Drive H: não montado.")
+            return
+            
+        atualizar_status_dashboard("Executando", 0.20, "Corrigindo inconsistências na planilha de Boletins...")
+        # 2. Corrigir inconsistências
+        if drive_service:
+            analisar_e_corrigir_planilha_boletins(drive_service)
+            
+        # 3. Executar scripts originais (Fallback)
+        executar_pipelines()
         
-    # 3. Executar scripts originais (Fallback)
-    executar_pipelines()
-    
-    # 4. Auditar e fechar planilhas locais
-    if drive_service:
-        verificar_e_atualizar_planilha_njud(drive_service)
-    
-    print("\n" + "="*60)
-    print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
-    print("="*60)
+        atualizar_status_dashboard("Executando", 0.90, "Auditando e atualizando planilha do NJUD...")
+        # 4. Auditar e fechar planilhas locais
+        if drive_service:
+            verificar_e_atualizar_planilha_njud(drive_service)
+        
+        atualizar_status_dashboard("Sucesso", 1.0, "Execução finalizada com sucesso.")
+        print("\n" + "="*60)
+        print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
+        print("="*60)
+    except Exception as e:
+        print(f"[ERRO CRÍTICO] Execução do agente falhou: {e}")
+        atualizar_status_dashboard("Erro", 1.0, f"Falha na execução: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Agente de IA supervisor da Rádio TJRN.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--once", action="store_true", help="Executa o agente apenas uma vez.")
     group.add_argument("--daemon", action="store_true", help="Executa o agente em loop contínuo.")
-    parser.add_argument("--interval", type=int, default=300, help="Intervalo de tempo entre execuções no modo daemon (segundos).")
+    parser.add_argument("--interval", type=int, default=86400, help="Intervalo de tempo entre execuções no modo daemon (segundos).")
     args = parser.parse_args()
     
     # Inicializar serviço Google Drive
