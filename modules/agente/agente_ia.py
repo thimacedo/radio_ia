@@ -37,15 +37,6 @@ try:
 except ImportError:
     llm_available = False
 
-try:
-    from core.notificador_whatsapp import NotificadorWhatsApp
-    notificador = NotificadorWhatsApp()
-    wa_available = True
-except Exception as e:
-    print(f"[AVISO] Notificador WhatsApp não carregado: {e}")
-    wa_available = False
-
-
 # Configurações
 SPREADSHEET_ID_BOLETINS = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SPREADSHEET_ID_NJUD = "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec"
@@ -53,7 +44,7 @@ SPREADSHEET_ID_NJUD = "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec"
 try:
     from core.best_practices import carregar_env_var, MONTH_MAP_SHORT, MONTH_MAP_FULL, WEEKDAYS_PT
 except ImportError:
-    def carregar_env_var(chave, fallback):
+    def carregar_env_var(chave, fallback=""):
         return fallback
     MONTH_MAP_SHORT = {
         1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR", 5: "MAI", 6: "JUN",
@@ -65,6 +56,40 @@ except ImportError:
         9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
     }
     WEEKDAYS_PT = {0: "SEG", 1: "TER", 2: "QUA", 3: "QUI", 4: "SEX", 5: "SAB", 6: "DOM"}
+
+# Inicializar os notificadores de acordo com as variáveis de ambiente
+wa_available = False
+push_available = False
+notificador_wa = None
+notificador_push = None
+
+try:
+    if carregar_env_var("WA_ATIVO", "true").lower() == "true":
+        from core.notificador_whatsapp import NotificadorWhatsApp
+        notificador_wa = NotificadorWhatsApp()
+        wa_available = True
+except Exception as e:
+    print(f"[AVISO] Notificador WhatsApp não pôde ser inicializado: {e}")
+
+try:
+    if carregar_env_var("PUSH_ATIVO", "false").lower() == "true":
+        from core.notificador_push import NotificadorPush
+        notificador_push = NotificadorPush()
+        push_available = True
+except Exception as e:
+    print(f"[AVISO] Notificador Push não pôde ser inicializado: {e}")
+
+def enviar_notificacao(metodo: str, *args, **kwargs):
+    if wa_available and notificador_wa:
+        try:
+            getattr(notificador_wa, metodo)(*args, **kwargs)
+        except Exception as ex:
+            print(f"[AVISO] Falha ao enviar notificação WhatsApp: {ex}")
+    if push_available and notificador_push:
+        try:
+            getattr(notificador_push, metodo)(*args, **kwargs)
+        except Exception as ex:
+            print(f"[AVISO] Falha ao enviar notificação Push: {ex}")
 
 DEFAULT_CREDS_REL = carregar_env_var("GOOGLE_APPLICATION_CREDENTIALS", "config/credentials/gen-lang-client-0980378916-8cc8eb1488d1.json")
 CREDENTIALS_PATH = os.path.join(project_root, DEFAULT_CREDS_REL).replace("\\", "/")
@@ -642,22 +667,14 @@ def run_agent_once(drive_service):
         print("=== AGENTE DE IA DA RÁDIO TJRN - INICIANDO EXECUÇÃO ===")
         print("="*60)
         
-        if wa_available:
-            try:
-                notificador.notificar_inicio("Agente IA")
-            except Exception as e_notif:
-                print(f"[AVISO] Falha ao notificar início: {e_notif}")
+        enviar_notificacao("notificar_inicio", "Agente IA")
         
         atualizar_status_dashboard("Executando", 0.05, "Iniciando verificação do Google Drive...")
         # 1. Verificar GDrive
         if not verificar_e_montar_drive():
             print(f"[CRÍTICO] Abortando execução devido a falta do Drive ({DRIVE_MOUNT}).")
             atualizar_status_dashboard("Erro", 0.0, f"Erro: Google Drive ({DRIVE_MOUNT}) não montado.")
-            if wa_available:
-                try:
-                    notificador.notificar_drive_offline()
-                except Exception as e_notif:
-                    print(f"[AVISO] Falha ao notificar drive offline: {e_notif}")
+            enviar_notificacao("notificar_drive_offline")
             return
             
         t_start = time.time()
@@ -682,27 +699,18 @@ def run_agent_once(drive_service):
         print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
         print("="*60)
         
-        if wa_available:
-            try:
-                # Obter status booleanos e duracao total
-                notificador.notificar_relatorio_diario({
-                    "boletins": {"ok": pipeline_status.get("boletins", False), "count": 0},
-                    "njud":     {"ok": pipeline_status.get("njud", False), "count": 0},
-                    "giro":     {"ok": pipeline_status.get("giro", False), "count": 0},
-                    "conflitos_corrigidos": 0,
-                    "duracao_total_s": duration
-                })
-            except Exception as e_notif:
-                print(f"[AVISO] Falha ao enviar relatório diário: {e_notif}")
+        enviar_notificacao("notificar_relatorio_diario", {
+            "boletins": {"ok": pipeline_status.get("boletins", False), "count": 0},
+            "njud":     {"ok": pipeline_status.get("njud", False), "count": 0},
+            "giro":     {"ok": pipeline_status.get("giro", False), "count": 0},
+            "conflitos_corrigidos": 0,
+            "duracao_total_s": duration
+        })
                 
     except Exception as e:
         print(f"[ERRO CRÍTICO] Execução do agente falhou: {e}")
         atualizar_status_dashboard("Erro", 1.0, f"Falha na execução: {e}")
-        if wa_available:
-            try:
-                notificador.notificar_erro("Agente IA", str(e))
-            except Exception as e_notif:
-                print(f"[AVISO] Falha ao notificar erro: {e_notif}")
+        enviar_notificacao("notificar_erro", "Agente IA", str(e))
 
 def main():
     parser = argparse.ArgumentParser(description="Agente de IA supervisor da Rádio TJRN.")
