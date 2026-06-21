@@ -522,8 +522,10 @@ async def main():
             sucessos += 1
             if not args.test:
                 sheet_name, row_idx, row_data, speaker_result = res
-                novo_locutor_texto = f"{speaker_result} ✔"
-                novo_editor_texto = "THI ✔"
+                # Gravamos apenas as siglas (ex: LEO, LIV, LET) sem o ✔.
+                # O ✔ será inserido dinamicamente pelo script do Sheets somente se o arquivo áudio existir no Drive.
+                novo_locutor_texto = speaker_result
+                novo_editor_texto = "THI"
                 linhas_atualizadas.append((sheet_name, row_idx, novo_locutor_texto, novo_editor_texto))
             
     print(f"\n=== PROCESSAMENTO FINALIZADO: {sucessos} de {len(pendencias)} concluídos ===")
