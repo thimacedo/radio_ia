@@ -76,15 +76,22 @@ class NotificadorPush:
     ) -> bool:
         # Quando publicamos via JSON, enviamos um POST para o root URL (ex: https://ntfy.sh)
         url = self.url
-        req = urllib.request.Request(url, method="POST")
-        req.add_header("Content-Type", "application/json; charset=utf-8")
-        self._autenticar(req)
+        
+        # Mapeia as prioridades em formato texto para inteiros exigidos pela API JSON do ntfy
+        prioridades_map = {
+            "urgent": 5, "5": 5,
+            "high": 4, "4": 4,
+            "default": 3, "normal": 3, "3": 3,
+            "low": 2, "2": 2,
+            "min": 1, "1": 1
+        }
+        prio_val = prioridades_map.get(str(prioridade).lower(), 3)
 
         payload = {
             "topic": self.topico,
             "message": mensagem,
             "title": titulo,
-            "priority": prioridade
+            "priority": prio_val
         }
         if tags:
             payload["tags"] = tags
@@ -93,7 +100,12 @@ class NotificadorPush:
 
         for tentativa in range(1, tentativas + 1):
             try:
-                with urllib.request.urlopen(req, data=dados, timeout=10) as resp:
+                # Criamos um novo Request a cada tentativa para evitar reuso de estado
+                req = urllib.request.Request(url, data=dados, method="POST")
+                req.add_header("Content-Type", "application/json; charset=utf-8")
+                self._autenticar(req)
+                
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status in (200, 201):
                         return True
             except urllib.error.URLError as e:

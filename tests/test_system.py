@@ -10,6 +10,7 @@ import os
 import sys
 import unittest
 import json
+from unittest.mock import patch, MagicMock
 
 # Adicionar raiz do projeto ao path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -98,6 +99,41 @@ class TestRadioSystem(unittest.TestCase):
             # Restaurar .env real se existia
             if os.path.exists(env_bak):
                 os.rename(env_bak, env_path)
+                
+    @patch('urllib.request.urlopen')
+    def test_notificador_push_priority_mapping(self, mock_urlopen):
+        """Valida que a prioridade em texto (Ex: high/urgent) é devidamente mapeada para inteiros na API do ntfy."""
+        from core.notificador_push import NotificadorPush
+        
+        # Configura resposta mockada com sucesso (status 200)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        
+        notifier = NotificadorPush()
+        notifier.url = "https://ntfy.sh"
+        notifier.topico = "test_topic"
+        
+        # Caso 1: prioridade "urgent" mapeada para 5
+        notifier.enviar("Olá, teste", prioridade="urgent")
+        req = mock_urlopen.call_args[0][0]
+        payload = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(payload["priority"], 5)
+        self.assertEqual(payload["topic"], "test_topic")
+        
+        # Caso 2: prioridade "high" mapeada para 4
+        notifier.enviar("Olá, teste", prioridade="high")
+        req = mock_urlopen.call_args[0][0]
+        payload = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(payload["priority"], 4)
+        
+        # Caso 3: prioridade default/invalida mapeada para 3
+        notifier.enviar("Olá, teste", prioridade="invalid_string")
+        req = mock_urlopen.call_args[0][0]
+        payload = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(payload["priority"], 3)
 
 if __name__ == "__main__":
     unittest.main()
+
+
