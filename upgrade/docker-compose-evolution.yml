@@ -1,0 +1,49 @@
+# docker-compose.yml — Evolution API para Rádio TJRN
+# Coloque este arquivo em qualquer pasta e execute: docker compose up -d
+#
+# Após subir, acesse: http://localhost:8080
+# Documentação da API: http://localhost:8080/manager
+#
+# PASSOS DE CONFIGURAÇÃO:
+# 1. Execute: docker compose up -d
+# 2. Acesse http://localhost:8080/manager
+# 3. Crie uma instância com o nome "radio-tjrn"
+# 4. Clique em "Connect" e escaneie o QR Code com o WhatsApp
+# 5. Copie a API Key gerada para o .env em WA_EVOLUTION_APIKEY
+
+version: "3.8"
+
+services:
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: evolution_radio_tjrn
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    environment:
+      # Chave de autenticação — TROQUE por algo seguro
+      - AUTHENTICATION_API_KEY=radio-tjrn-apikey-2026
+
+      # Armazenamento local (sem banco externo necessário)
+      - DATABASE_ENABLED=false
+      - STORE_MESSAGES=true
+      - STORE_MESSAGE_UP=true
+      - STORE_CONTACTS=true
+      - STORE_CHATS=true
+
+      # Cache local (sem Redis necessário para uso simples)
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_LOCAL_ENABLED=true
+
+      # Desligar telemetria
+      - TELEMETRY=false
+
+      # Log nível
+      - LOG_LEVEL=ERROR
+
+volumes:
+  evolution_instances:
+  evolution_store:
