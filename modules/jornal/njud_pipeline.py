@@ -13,11 +13,11 @@ from core.models import ProgramRecipe, VoiceStrategy, AssemblyRecipe
 from core.engine import PipelineEngine
 from core.best_practices import carregar_env_var
 
-# ---------------------------------------------------------------------------
+DRIVE_ROOT = pathlib.Path(carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO"))
+
 # Configuração
-# ---------------------------------------------------------------------------
-NJUD_INPUT_DIR = pathlib.Path(carregar_env_var("DRIVE_NJUD_INPUT_DIR", r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026\Roteiros TXT Original"))
-NJUD_OUTPUT_DIR = pathlib.Path(carregar_env_var("DRIVE_NJUD_OUTPUT_DIR", r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026"))
+NJUD_INPUT_DIR = pathlib.Path(carregar_env_var("DRIVE_NJUD_INPUT_DIR", str(DRIVE_ROOT / "00_PRODUCAO_2026/02_JORNAIS_NJUD/01_ROTEIROS")))
+NJUD_OUTPUT_DIR = pathlib.Path(carregar_env_var("DRIVE_NJUD_OUTPUT_DIR", str(DRIVE_ROOT / "00_PRODUCAO_2026/02_JORNAIS_NJUD/03_AUDIOS_RADIO")))
 LOCAL_WORK_DIR = project_root / "modules" / "jornal" / "workspace"
 
 VHT_DIR = project_root / "assets" / "vht" # Vinhetas do NJUD estão com as do boletim

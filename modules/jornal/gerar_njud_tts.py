@@ -25,7 +25,7 @@ DRIVE_ROOT = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
 PATH_PLANILHA = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026.xlsx").replace("\\", "/")
 LOCAL_WORKSPACE = os.path.join(current_dir, "workspace").replace("\\", "/")
 GLOBAL_VHT_DIR = os.path.join(project_root, "assets/vht").replace("\\", "/")
-DRIVE_BASE_DIR = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026").replace("\\", "/")
+DRIVE_BASE_DIR = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
 
 def baixar_roteiro_via_api(doc_id):
     try:
@@ -535,19 +535,31 @@ async def main():
             caminho_col = obter_caminho_mes(refer_val)
             sufixo_data = obter_sufixo_data(refer_val)
             
-            # Padrão final de nomeclatura: NJUD + Número + Data de Veiculação
+            # Padrão final de nomenclatura: NJUD + Número + Data de Veiculação
             nome_final = f"{nome_arquivo} {sufixo_data}" if sufixo_data else nome_arquivo
             
-            # 1. Verificar na nova pasta EDITADOS com o novo padrão
-            drive_editados_dir = os.path.join(DRIVE_BASE_DIR, caminho_col, "EDITADOS").replace("\\", "/")
-            drive_audio_path_new = os.path.join(drive_editados_dir, f"{nome_final}.mp3").replace("\\", "/")
+            # Extrair mes_num para estruturação 5S
+            mes_num = 6
+            m_mes = re.search(r'(\d+)', caminho_col)
+            if m_mes:
+                mes_num = int(m_mes.group(1))
+            short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
+            folder_name = f"{mes_num:02d} - {short_name} - {ANO_SHORT}"
             
-            # 2. Verificar na raiz da pasta do mês com o padrão antigo
-            drive_month_dir_old = os.path.join(DRIVE_BASE_DIR, caminho_col).replace("\\", "/")
-            drive_audio_path_old = os.path.join(drive_month_dir_old, f"{nome_arquivo} LOC.mp3").replace("\\", "/")
+            # 1. Verificar na estrutura 5S (Mailing e Rádio)
+            drive_5s_base = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
+            drive_audio_path_5s_mailing = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name, f"{nome_final}.mp3").replace("\\", "/")
+            drive_audio_path_5s_radio = os.path.join(drive_5s_base, "03_AUDIOS_RADIO", folder_name, f"{nome_final}.mp3").replace("\\", "/")
             
-            if os.path.exists(drive_audio_path_new) or os.path.exists(drive_audio_path_old):
-                # O áudio final já existe no Drive (no novo ou no antigo formato), ignora!
+            # 2. Verificar na estrutura tradicional antiga (legada)
+            drive_audio_path_trad = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, "EDITADOS", f"{nome_final}.mp3").replace("\\", "/")
+            drive_audio_path_trad_old = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, f"{nome_arquivo} LOC.mp3").replace("\\", "/")
+            
+            if (os.path.exists(drive_audio_path_5s_mailing) or 
+                os.path.exists(drive_audio_path_5s_radio) or 
+                os.path.exists(drive_audio_path_trad) or 
+                os.path.exists(drive_audio_path_trad_old)):
+                # O áudio final já existe no Drive (em qualquer formato), ignora!
                 print(f"  - {nome_final} (ignorado, áudio final já existe no Drive)")
                 continue
                 
@@ -693,30 +705,11 @@ async def main():
             nome_arquivo = row_data[1]
             sufixo_data = row_data[3] if len(row_data) > 3 else ""
             
-            # --- Caminho Tradicional ---
-            drive_month_dir = os.path.join(DRIVE_BASE_DIR, caminho_col, "EDITADOS").replace("\\", "/")
-            os.makedirs(drive_month_dir, exist_ok=True)
-            
             filename_base = f"{nome_arquivo} {sufixo_data}" if sufixo_data else f"{nome_arquivo} LOC"
             local_audio_file = os.path.join(LOCAL_WORKSPACE, f"3_audio_final/{filename_base}.mp3").replace("\\", "/")
             local_txt_file = os.path.join(LOCAL_WORKSPACE, f"2_txt_revisado/{filename_base}.txt").replace("\\", "/")
             
-            drive_audio_path = os.path.join(drive_month_dir, f"{filename_base}.mp3").replace("\\", "/")
-            drive_txt_path = os.path.join(drive_month_dir, f"{filename_base}.txt").replace("\\", "/")
-            
-            # Copiar áudio tradicional
-            if os.path.exists(local_audio_file):
-                shutil.copy2(local_audio_file, drive_audio_path)
-                print(f"  [ÁUDIO] Copiado para o Drive (Tradicional): {drive_audio_path}")
-                total_sincronizados += 1
-                
-            # Copiar texto tradicional
-            if os.path.exists(local_txt_file):
-                shutil.copy2(local_txt_file, drive_txt_path)
-                print(f"  [ROTEIRO] Copiado para o Drive (Tradicional): {drive_txt_path}")
-                total_sincronizados += 1
-                
-            # --- Novo Caminho Estruturado 5S de 2026 ---
+            # --- Caminhos Estruturados 5S de 2026 ---
             try:
                 # Extrair mes_num de caminho_col
                 mes_num = 6
@@ -728,28 +721,37 @@ async def main():
                 folder_name = f"{mes_num:02d} - {short_name} - {ANO_SHORT}"
                 
                 drive_5s_base = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
-                drive_5s_mailing_dir = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name).replace("\\", "/")
                 drive_5s_roteiros_dir = os.path.join(drive_5s_base, "01_ROTEIROS", folder_name).replace("\\", "/")
+                drive_5s_mailing_dir = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name).replace("\\", "/")
+                drive_5s_radio_dir = os.path.join(drive_5s_base, "03_AUDIOS_RADIO", folder_name).replace("\\", "/")
                 
-                os.makedirs(drive_5s_mailing_dir, exist_ok=True)
                 os.makedirs(drive_5s_roteiros_dir, exist_ok=True)
+                os.makedirs(drive_5s_mailing_dir, exist_ok=True)
+                os.makedirs(drive_5s_radio_dir, exist_ok=True)
                 
-                drive_5s_audio_path = os.path.join(drive_5s_mailing_dir, f"{filename_base}.mp3").replace("\\", "/")
                 drive_5s_txt_path = os.path.join(drive_5s_roteiros_dir, f"{filename_base}.txt").replace("\\", "/")
+                drive_5s_audio_path_mailing = os.path.join(drive_5s_mailing_dir, f"{filename_base}.mp3").replace("\\", "/")
+                drive_5s_audio_path_radio = os.path.join(drive_5s_radio_dir, f"{filename_base}.mp3").replace("\\", "/")
                 
-                # Copiar áudio para o 5S
-                if os.path.exists(local_audio_file):
-                    shutil.copy2(local_audio_file, drive_5s_audio_path)
-                    print(f"  [ÁUDIO 5S] Copiado para: {drive_5s_audio_path}")
-                    total_sincronizados += 1
-                    
-                # Copiar texto para o 5S
+                # Copiar roteiro
                 if os.path.exists(local_txt_file):
                     shutil.copy2(local_txt_file, drive_5s_txt_path)
                     print(f"  [ROTEIRO 5S] Copiado para: {drive_5s_txt_path}")
                     total_sincronizados += 1
+                    
+                # Copiar áudio para mailing
+                if os.path.exists(local_audio_file):
+                    shutil.copy2(local_audio_file, drive_5s_audio_path_mailing)
+                    print(f"  [ÁUDIO MAILING 5S] Copiado para: {drive_5s_audio_path_mailing}")
+                    total_sincronizados += 1
+                    
+                # Copiar áudio para rádio
+                if os.path.exists(local_audio_file):
+                    shutil.copy2(local_audio_file, drive_5s_audio_path_radio)
+                    print(f"  [ÁUDIO RÁDIO 5S] Copiado para: {drive_5s_audio_path_radio}")
+                    total_sincronizados += 1
             except Exception as e_5s:
-                print(f"  [AVISO] Falha ao sincronizar na nova estrutura 5S: {e_5s}")
+                print(f"  [ERRO] Falha ao sincronizar na nova estrutura 5S: {e_5s}")
                 
         print(f"Sincronização com o Drive concluída! Total de arquivos copiados: {total_sincronizados}")
         
