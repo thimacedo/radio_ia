@@ -218,21 +218,26 @@ def baixar_roteiro_via_api(doc_id):
 
 # Baixar e parsear Google Doc do roteiro
 def baixar_e_parsear_roteiro(url):
-    m = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
-    if not m:
-        raise ValueError("URL do Google Doc inválida.")
-    doc_id = m.group(1)
-    
-    # 1. Tentar download seguro via API da Conta de Serviço
-    content = baixar_roteiro_via_api(doc_id)
-    
-    # 2. Fallback público via urllib se a API falhar
-    if not content:
-        print("      [INFO] Tentando download público via urllib...")
-        export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
-        req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            content = response.read().decode('utf-8-sig', errors='ignore')
+    if os.path.exists(url) and os.path.isfile(url):
+        print(f"      [INFO] Lendo roteiro local diretamente: {url}")
+        with open(url, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+    else:
+        m = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        if not m:
+            raise ValueError("URL do Google Doc inválida.")
+        doc_id = m.group(1)
+        
+        # 1. Tentar download seguro via API da Conta de Serviço
+        content = baixar_roteiro_via_api(doc_id)
+        
+        # 2. Fallback público via urllib se a API falhar
+        if not content:
+            print("      [INFO] Tentando download público via urllib...")
+            export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+            req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                content = response.read().decode('utf-8-sig', errors='ignore')
         
     lines = content.split('\n')
     cabeca_lines = []
@@ -436,38 +441,123 @@ async def processar_boletim(row_idx, row_data, assets, test_mode):
         edit_audio.export(edit_saida_path, format="mp3", bitrate="192k")
         print(f"  [OK] Editada gerada em: {edit_saida_path}")
         
-        return speaker_name
     except Exception as e:
         print(f"  [ERRO] Falha no processamento ou exportação de áudio: {e}")
         return False
+
+# Funções auxiliares para auto-descoberta física
+def extrair_url_de_gdoc_local(filepath):
+    try:
+        import json
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("url")
+    except Exception:
+        pass
+    return None
+
+def buscar_pendencias_boletins_drive(drive_root):
+    print("\n[Mapeamento Físico] Varrendo pastas de Boletins no Google Drive...")
+    path_roteiros_base = os.path.join(drive_root, "00_PRODUCAO_2026", "01_BOLETINS_DIARIOS", "01_ROTEIROS").replace("\\", "/")
+    path_mailing_base = os.path.join(drive_root, "00_PRODUCAO_2026", "01_BOLETINS_DIARIOS", "02_AUDIOS_MAILING").replace("\\", "/")
+    path_radio_base = os.path.join(drive_root, "00_PRODUCAO_2026", "01_BOLETINS_DIARIOS", "03_AUDIOS_RADIO").replace("\\", "/")
+    
+    pendencias_fisicas = []
+    
+    if not os.path.exists(path_roteiros_base):
+        print(f"  [AVISO] Pasta base de roteiros de Boletins não encontrada: {path_roteiros_base}")
+        return []
+        
+    from core.constants import MONTH_MAP_FULL
+    
+    try:
+        for mes_folder in os.listdir(path_roteiros_base):
+            mes_path = os.path.join(path_roteiros_base, mes_folder).replace("\\", "/")
+            if not os.path.isdir(mes_path):
+                continue
+                
+            m_mes = re.match(r'(\d+)\s*-', mes_folder)
+            if not m_mes:
+                continue
+            mes_num = int(m_mes.group(1))
+            
+            sheet_name = MONTH_MAP_FULL.get(mes_num, f"{mes_num} - MES")
+            
+            for dia_folder in os.listdir(mes_path):
+                dia_path = os.path.join(mes_path, dia_folder).replace("\\", "/")
+                if not os.path.isdir(dia_path):
+                    continue
+                    
+                m_dia = re.match(r'(\d+)\s+(\d+)', dia_folder)
+                if not m_dia:
+                    continue
+                dia_num = int(m_dia.group(1))
+                
+                for file_name in os.listdir(dia_path):
+                    file_path = os.path.join(dia_path, file_name).replace("\\", "/")
+                    if not os.path.isfile(file_path):
+                        continue
+                        
+                    if file_name.startswith("desktop.ini") or file_name.startswith("."):
+                        continue
+                        
+                    suffix = os.path.splitext(file_name)[1].lower()
+                    if suffix not in [".gdoc", ".txt"]:
+                        continue
+                        
+                    nome_base = os.path.splitext(file_name)[0]
+                    
+                    audio_mailing_path = os.path.join(path_mailing_base, mes_folder, dia_folder, f"{nome_base}.mp3").replace("\\", "/")
+                    audio_radio_path = os.path.join(path_radio_base, mes_folder, dia_folder, f"{nome_base}.mp3").replace("\\", "/")
+                    
+                    if os.path.exists(audio_mailing_path) or os.path.exists(audio_radio_path):
+                        continue
+                        
+                    url_doc = ""
+                    if suffix == ".gdoc":
+                        url_doc = extrair_url_de_gdoc_local(file_path)
+                    elif suffix == ".txt":
+                        url_doc = file_path
+                        
+                    if not url_doc:
+                        continue
+                        
+                    caminho_col = f"{dia_num:02d}/{mes_num:02d}"
+                    locutor = ""
+                    if "B1" in nome_base or "B3" in nome_base or "B5" in nome_base:
+                        locutor = "LIV"
+                    elif "B2" in nome_base or "B4" in nome_base:
+                        locutor = "LEO"
+                        
+                    row_data = [
+                        caminho_col,
+                        nome_base,
+                        "Pendente",
+                        locutor,
+                        "THI",
+                        "",
+                        nome_base,
+                        url_doc,
+                        datetime.now()
+                    ]
+                    
+                    pendencias_fisicas.append((sheet_name, 9999, row_data))
+                    print(f"  [PENDÊNCIA DETECTADA VIA DRIVE] Roteiro: '{nome_base}' -> Sem áudio correspondente.")
+    except Exception as e_scan:
+        print(f"  [ERRO] Falha ao varrer pastas físicas do Drive para Boletins: {e_scan}")
+        
+    return pendencias_fisicas
 
 # Execução do pipeline principal
 async def main():
     import argparse
     parser = argparse.ArgumentParser(description="Centralizador de Gravação Automática de Boletins via TTS.")
-    parser.add_argument("--test", action="store_true", help="Executa apenas uma gravação de teste e não altera a planilha final.")
+    parser.add_argument("--test", action="store_true", help="Executa apenas uma gravação de teste.")
     args = parser.parse_args()
     
     print("=== Processador Central de Boletins Rádio TJRN — Início ===")
     
-    # 1. Baixar a planilha controle atualizada
-    print(f"\nBaixando planilha de produção a partir do Drive...")
-    local_xlsx = os.path.join(workspace_dir, "BOLETINS_2026.xlsx").replace("\\", "/")
-    try:
-        urllib.request.urlretrieve(SHEET_URL, local_xlsx)
-        print(f"[OK] Planilha baixada e salva localmente como: {local_xlsx}")
-    except Exception as e:
-        print(f"[AVISO] Falha ao baixar planilha de controle: {e}")
-        if os.path.exists(local_xlsx):
-            print(f"[INFO] Utilizando planilha local existente '{local_xlsx}' como fallback.")
-        else:
-            print("[ERRO CRÍTICO] Falha no download e nenhuma cópia local encontrada. Abortando.")
-            sys.exit(1)
-        
-    # 2. Carregar a planilha com openpyxl para poder fazer atualizações
-    wb = openpyxl.load_workbook(local_xlsx)
-    
-    # 3. Carregar vinhetas e BG do boletim
+    # 2. Carregar vinhetas e BG do boletim
     vht_abertura_path = os.path.join(LOCAL_BOLETINS_DIR, "VHT/vht_abertura.mp3").replace("\\", "/")
     vht_encerramento_path = os.path.join(LOCAL_BOLETINS_DIR, "VHT/vht_encerramento.mp3").replace("\\", "/")
     vht_passagem_path = os.path.join(LOCAL_BOLETINS_DIR, "VHT/vht_passagem.mp3").replace("\\", "/")
@@ -481,54 +571,29 @@ async def main():
         "bg_boletim": carregar_audio_asset(bg_boletim_path, "BG Trilha")
     }
     
-    # Verificar se todos os assets vitais estão carregados
     if not all(assets.values()):
         print("[ERRO CRÍTICO] Algum asset de áudio essencial não pôde ser carregado. Abortando.")
         sys.exit(1)
         
-    # 4. Listar todas as pendências em todos os meses
-    sheets_to_process = [name for name in wb.sheetnames if name != 'DASHBOARD GERAL']
+    pendencias = []
     
-    pendencias = [] # Lista de tuplas: (sheet_name, row_idx, row_data)
-    
-    for s_name in sheets_to_process:
-        ws = wb[s_name]
-        rows = list(ws.iter_rows(values_only=True))
-        if len(rows) <= 5:
-            continue
+    # 3. Varredura Física (Fonte da Verdade Única)
+    pendencias_drive = buscar_pendencias_boletins_drive(DRIVE_DIR.split("/00_PRODUCAO_2026")[0]) # Obtém o DRIVE_ROOT
+    pendencias.extend(pendencias_drive)
             
-        for idx, r in enumerate(rows[5:], start=5):
-            if not r[1]: # NOME DO ARQUIVO vazio
-                continue
-            locutor = r[3]
-            editor = r[4]
-            url = r[7]
-            
-            # Validação se a URL existe para download
-            if not url or 'document/d/' not in str(url):
-                continue
-                
-            is_loc_pending = not locutor or '✔' not in str(locutor)
-            is_edit_pending = not editor or '✔' not in str(editor)
-            
-            # Se o editor for RAD, indica processamento manual e a IA ignora para evitar conflito
-            if (is_loc_pending or is_edit_pending) and not (editor and str(editor).strip().upper() == "RAD"):
-                pendencias.append((s_name, idx, r))
-                
     if not pendencias:
-        print("\n[INFO] Nenhuma pendência encontrada na planilha! Tudo finalizado.")
+        print("\n[INFO] Nenhuma pendência de Boletins encontrada! Tudo finalizado.")
+        print("[PRODUCAO_COUNT] 0")
         sys.exit(0)
         
-    print(f"\nTotal de pendências detectadas: {len(pendencias)}")
+    print(f"\nTotal de pendências detectadas nos Boletins: {len(pendencias)}")
     
     if args.test:
         print("\n*** MODO DE TESTE ATIVO — Processando apenas 1 pendência ***")
         pendencias = pendencias[:1]
         
     sucessos = 0
-    linhas_atualizadas = [] # Armazena quais linhas foram modificadas
     
-    # Limitar concorrência para não estourar limite do Edge TTS
     sem = asyncio.Semaphore(4)
     
     async def processar_com_sem(sheet_name, row_idx, row_data):
@@ -536,7 +601,6 @@ async def main():
             try:
                 speaker_result = await processar_boletim(row_idx, row_data, assets, args.test)
                 if speaker_result:
-                    # Pequeno delay pós-sucesso dentro do worker para espaçar requisições
                     await asyncio.sleep(1.0)
                     return sheet_name, row_idx, row_data, speaker_result
             except Exception as e:
@@ -550,100 +614,30 @@ async def main():
     for res in results:
         if res:
             sucessos += 1
-            if not args.test:
-                sheet_name, row_idx, row_data, speaker_result = res
-                # Gravamos apenas as siglas (ex: LEO, LIV, LET) sem o ✔.
-                # O ✔ será inserido dinamicamente pelo script do Sheets somente se o arquivo áudio existir no Drive.
-                novo_locutor_texto = speaker_result
-                novo_editor_texto = "THI"
-                linhas_atualizadas.append((sheet_name, row_idx, novo_locutor_texto, novo_editor_texto))
             
     print(f"\n=== PROCESSAMENTO FINALIZADO: {sucessos} de {len(pendencias)} concluídos ===")
     
-    # 5. Se foi gravado com sucesso e não é teste, atualizar planilhas
+    # 5. Sincronizar os áudios e textos gerados com as pastas do Drive
     if not args.test and sucessos > 0:
-        print("\nAtualizando planilhas com as novas confirmações de gravação...")
-        for s_name, r_idx, loc_txt, edit_txt in linhas_atualizadas:
-            ws = wb[s_name]
-            # No openpyxl, a linha é 1-indexed. Como iter_rows retornou a linha 0-indexed,
-            # o row_idx que passamos (inicializado em 5 do start=5) já bate exatamente com o Excel físico!
-            ws.cell(row=r_idx + 1, column=4, value=loc_txt) # Coluna D: LOCUTOR
-            ws.cell(row=r_idx + 1, column=5, value=edit_txt) # Coluna E: EDITOR
-            
-        # Salvar planilha local de boletins
-        local_updated_xlsx = os.path.join(LOCAL_BOLETINS_DIR, "BOLETINS_2026_ATUALIZADO.xlsx").replace("\\", "/")
-        wb.save(local_updated_xlsx)
-        print(f"Planilha Excel atualizada salva localmente em: {local_updated_xlsx}")
-        
-        # Exportar cada aba para CSV
-        csv_dir = os.path.join(LOCAL_BOLETINS_DIR, "planilha_csv").replace("\\", "/")
-        os.makedirs(csv_dir, exist_ok=True)
-        
-        print("\nExportando abas atualizadas para arquivos CSV...")
-        for s_name in sheets_to_process:
-            ws = wb[s_name]
-            rows_data = []
-            for r in ws.iter_rows(values_only=True):
-                # Mantém apenas as linhas onde há alguma célula preenchida
-                if any(r):
-                    rows_data.append(r)
-            # Criar DataFrame e salvar como CSV
-            df = pd.DataFrame(rows_data[4:]) # Pula a firula inicial do Dashboard da aba e usa a linha 4 como dados
-            df.columns = rows_data[4] # Seta headers corretos
-            # Remover a primeira linha de dados se ela duplicar os headers
-            df = df.iloc[1:]
-            
-            csv_path = os.path.join(csv_dir, f"{s_name}.csv").replace("\\", "/")
-            df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-            print(f"  [OK] Exportado CSV: {csv_path}")
-            
-        # 6. Copiar de volta para a pasta do Google Drive (H:\Meu Drive\RADIO TJRN CONTEÚDO\0-BOLETINS)
-        print(f"\nSincronizando planilhas atualizadas com a pasta do Google Drive em '{DRIVE_DIR}'...")
-        if os.path.exists(DRIVE_DIR):
-            drive_xlsx_path = os.path.join(DRIVE_DIR, "BOLETINS_2026_ATUALIZADO.xlsx").replace("\\", "/")
-            drive_csv_dir = os.path.join(DRIVE_DIR, "planilha_csv").replace("\\", "/")
-            os.makedirs(drive_csv_dir, exist_ok=True)
-            
-            # Copiar Excel
-            import shutil
-            shutil.copy2(local_updated_xlsx, drive_xlsx_path)
-            print(f"  [OK] Planilha Excel copiada para o Drive: {drive_xlsx_path}")
-            
-            # Copiar todos os CSVs
-            for file in os.listdir(csv_dir):
-                if file.endswith(".csv"):
-                    shutil.copy2(os.path.join(csv_dir, file), os.path.join(drive_csv_dir, file))
-            print(f"  [OK] Todos os CSVs copiados para o Drive em: {drive_csv_dir}")
-        else:
-            print(f"[AVISO] Pasta do Drive '{DRIVE_DIR}' não encontrada. Planilhas salvas apenas localmente.")
-            
-        # Sincronizar os áudios e textos gerados com as pastas do Drive
         try:
             from sincronizar_boletins_drive import sincronizar
             sincronizar()
         except Exception as e:
             print(f"[ERRO] Falha ao executar sincronização com o Drive: {e}")
             
-        # Enviar atualizações para a planilha na nuvem via Web App se configurado
-        webapp_url = obter_webapp_url()
-        if webapp_url:
-            updates = [
-                {
-                    "sheetName": sheet_name,
-                    "rowIdx": row_idx,
-                    "locutor": loc_txt,
-                    "editor": edit_txt
-                }
-                for sheet_name, row_idx, loc_txt, edit_txt in linhas_atualizadas
-            ]
-            enviar_atualizacoes_web_app(webapp_url, updates)
-            
-            # Disparar a sincronização da planilha via Webhook após atualizar
-            sheet_names_unicas = list(set([sheet_name for sheet_name, _, _, _ in linhas_atualizadas]))
-            enviar_trigger_sync_web_app(webapp_url, sheet_names_unicas)
-        else:
-            print("[AVISO] BOLETINS_WEBAPP_URL não configurada no .env. Não foi possível atualizar a planilha da nuvem em tempo real.")
-            
+    # Limpar lixo do workspace local (padrão 5S)
+    try:
+        if os.path.exists(LOCAL_BOLETINS_DIR):
+            for item in os.listdir(LOCAL_BOLETINS_DIR):
+                item_path = os.path.join(LOCAL_BOLETINS_DIR, item)
+                if os.path.isdir(item_path) and item.upper() != "VHT":
+                    import shutil
+                    shutil.rmtree(item_path)
+            print("  [LIMPEZA 5S] Lixo local limpo no workspace de Boletins.")
+    except Exception as e_clean:
+        print(f"  [AVISO] Falha ao limpar workspace local de Boletins: {e_clean}")
+                
+    print(f"\n[PRODUCAO_COUNT] {sucessos}")
     print("\n=== PIPELINE CONCLUÍDO ===")
 
 if __name__ == "__main__":

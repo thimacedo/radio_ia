@@ -106,21 +106,15 @@ if __name__ == "__main__":
         print("Iniciando o processamento dos roteiros na pasta local 1_txt_bruto...")
         files = sorted([f for f in motor.txt_dir.glob("*.txt") if not f.name.endswith(".bak")])
         
-        month_map_njud = {
-            "01": "1 - JANEIRO", "02": "2 - FEVEREIRO", "03": "3 - MARÇO", "04": "4 - ABRIL",
-            "05": "5 - MAIO", "06": "6 - JUNHO", "07": "7 - JULHO", "08": "8 - AGOSTO",
-            "09": "9 - SETEMBRO", "10": "10 - OUTUBRO", "11": "11 - NOVEMBRO", "12": "12 - DEZEMBRO"
-        }
+        from core.constants import folder_name_5s, ANO_SHORT
         
         for idx, f in enumerate(files):
             subfolder = ""
             # Procura por padrão de data DD-MM no nome do arquivo (ex: 02-06)
             month_match = re.search(r"-(\d{2})", f.name) 
             if month_match:
-                mes_num = month_match.group(1)
-                mes_pasta = month_map_njud.get(mes_num, "")
-                if mes_pasta:
-                    subfolder = f"{mes_pasta}/EDITADOS"
+                mes_num = int(month_match.group(1))
+                subfolder = folder_name_5s(mes_num, ANO_SHORT)
             
             await motor.run_file(f, file_idx=idx, subfolder=subfolder)
                 

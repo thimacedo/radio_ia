@@ -88,6 +88,8 @@ def carregar_audio_asset(caminho, label):
     return None
 
 def obter_id_documento(url):
+    if os.path.exists(url) and os.path.isfile(url):
+        return "local_file"
     m = re.search(r'/d/([a-zA-Z0-9_-]{25,})', str(url))
     if m:
         return m.group(1)
@@ -207,18 +209,28 @@ async def processar_jornal(row_idx, row_data, assets, llm, test_mode):
         return True
         
     # 3. Baixar roteiro bruto
-    print(f"  -> Baixando roteiro técnico do Google Docs...")
-    roteiro_bruto = baixar_roteiro_via_api(doc_id)
-    if not roteiro_bruto:
-        print("  -> Tentando download alternativo...")
+    roteiro_bruto = None
+    if doc_id == "local_file":
+        print(f"  -> Lendo roteiro local diretamente de: {url_doc}")
         try:
-            export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
-            req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
-                roteiro_bruto = response.read().decode('utf-8-sig', errors='ignore')
+            with open(url_doc, "r", encoding="utf-8", errors="ignore") as f:
+                roteiro_bruto = f.read()
         except Exception as e:
-            print(f"  [ERRO] Falha ao baixar roteiro do Docs (API e fallback): {e}")
+            print(f"  [ERRO] Falha ao ler roteiro local: {e}")
             return False
+    else:
+        print(f"  -> Baixando roteiro técnico do Google Docs...")
+        roteiro_bruto = baixar_roteiro_via_api(doc_id)
+        if not roteiro_bruto:
+            print("  -> Tentando download alternativo...")
+            try:
+                export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+                req = urllib.request.Request(export_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    roteiro_bruto = response.read().decode('utf-8-sig', errors='ignore')
+            except Exception as e:
+                print(f"  [ERRO] Falha ao baixar roteiro do Docs (API e fallback): {e}")
+                return False
             
     try:
         with open(txt_bruto_path, "w", encoding="utf-8") as f:
@@ -394,38 +406,7 @@ async def main():
     print("=== Processador Central de Jornal (NJUD) Rádio TJRN — Início ===")
     
     import datetime
-    
-    URL_SPREADSHEET = "https://docs.google.com/spreadsheets/d/1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec/export?format=xlsx"
-    temp_file = os.path.join(LOCAL_WORKSPACE, "njud_temp_downloaded.xlsx").replace("\\", "/")
     os.makedirs(LOCAL_WORKSPACE, exist_ok=True)
-    
-    # 1. Carregar a planilha controle (Tentar online primeiro, senão local)
-    wb = None
-    loaded_source = None
-    
-    print("Tentando baixar planilha online do Google Sheets...")
-    try:
-        req = urllib.request.Request(URL_SPREADSHEET, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            content = response.read()
-        with open(temp_file, "wb") as f:
-            f.write(content)
-        wb = openpyxl.load_workbook(temp_file, data_only=True)
-        loaded_source = "online_google_sheet"
-        print("Planilha carregada com sucesso diretamente do Google Sheets (online).")
-        try:
-            os.remove(temp_file)
-        except Exception:
-            pass
-    except Exception as e:
-        print(f"Não foi possível carregar do Google Sheets online ({e}). Usando arquivo local...")
-        if os.path.exists(PATH_PLANILHA):
-            wb = openpyxl.load_workbook(PATH_PLANILHA, data_only=True)
-            loaded_source = "local_excel"
-            print(f"Planilha local carregada: {PATH_PLANILHA}")
-        else:
-            print(f"[ERRO CRÍTICO] Planilha local do NJUD não encontrada: {PATH_PLANILHA}")
-            sys.exit(1)
             
     # 2. Carregar assets de áudio (Nomes corrigidos de acordo com o padrão de arquivos do NJUD)
     vht_abertura_path = os.path.join(GLOBAL_VHT_DIR, "NJUD - VHT - ABERTURA.mp3").replace("\\", "/")
@@ -472,194 +453,134 @@ async def main():
         m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
         if m:
             return f"{m.group(3)}-{m.group(2)}"
-        m2 = re.search(r'(\d{2})[-/](\d{2})[-/](\d{4})', refer_str)
+           # 4. Funções auxiliares para auto-descoberta de arquivos física
+    def extrair_url_de_gdoc_local(filepath):
+        try:
+            import json
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("url")
+        except Exception:
+            pass
+        return None
+
+    def obter_sufixo_data_do_conteudo(texto_roteiro):
+        if not texto_roteiro:
+            return ""
+        m = re.search(r'PROGRAMA\s*(?:N[\u00ba\u00b0\.]\s*)?\d+\s*\(\s*(\d{2})[\/-](\d{2})\s*\)', texto_roteiro, re.IGNORECASE)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+        m2 = re.search(r'(\d{2})\s*de\s*(janeiro|fevereiro|mar\u00e7o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)', texto_roteiro, re.IGNORECASE)
         if m2:
-            return f"{m2.group(1)}-{m2.group(2)}"
+            meses = ['janeiro', 'fevereiro', 'mar\u00e7o', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+            dia = m2.group(1).zfill(2)
+            mes_nome = m2.group(2).lower()
+            if mes_nome in meses:
+                mes = str(meses.index(mes_nome) + 1).zfill(2)
+                return f"{dia}-{mes}"
         return ""
 
-    # 4. Localizar pendências baseando-se na ausência de arquivo final no Drive
-    sheets_to_process = [name for name in wb.sheetnames if name != 'DASHBOARD GERAL']
-    pendencias = [] # Tuplas: (sheet_name, row_idx, normalized_row)
-    sheet_njud_names = set()
-    
-    for s_name in sheets_to_process:
-        ws = wb[s_name]
-        rows = list(ws.iter_rows(values_only=True))
-        if len(rows) <= 1:
-            continue
-            
-        # Mapeamento dinâmico de colunas baseando-se nos cabeçalhos
-        header_row = [str(h).upper().strip() if h is not None else "" for h in rows[0]]
-        idx_refer = -1
-        idx_njud = -1
-        idx_url = -1
-        idx_audio = -1
+    def buscar_pendencias_njud_drive(drive_root):
+        print("\n[Mapeamento Físico] Varrendo pastas de NJUD no Google Drive...")
+        path_roteiros_base = os.path.join(drive_root, "00_PRODUCAO_2026", "02_JORNAIS_NJUD", "01_ROTEIROS").replace("\\", "/")
+        path_mailing_base = os.path.join(drive_root, "00_PRODUCAO_2026", "02_JORNAIS_NJUD", "02_AUDIOS_MAILING").replace("\\", "/")
+        path_radio_base = os.path.join(drive_root, "00_PRODUCAO_2026", "02_JORNAIS_NJUD", "03_AUDIOS_RADIO").replace("\\", "/")
         
-        for idx, h in enumerate(header_row):
-            if "REFER" in h or "CAMINHO" in h:
-                idx_refer = idx
-            elif "NJUD" in h or "NOME DO ARQUIVO" in h:
-                idx_njud = idx
-            elif "URL" in h:
-                idx_url = idx
-            elif "AUDIO" in h or "ÁUDIO" in h:
-                idx_audio = idx
-                
-        if idx_njud == -1 or idx_url == -1:
-            print(f"  [Aviso] Não foi possível mapear colunas necessárias na aba {s_name}. Ignorando aba.")
-            continue
+        pendencias_fisicas = []
+        
+        if not os.path.exists(path_roteiros_base):
+            print(f"  [AVISO] Pasta base de roteiros do NJUD não encontrada: {path_roteiros_base}")
+            return []
             
-        for idx, r in enumerate(rows[1:], start=1):
-            nome_raw = r[idx_njud]
-            if not nome_raw:
-                continue
-            nome_arquivo = str(nome_raw).strip()
-            
-            # Garantir que é um arquivo NJUD
-            if "NJUD" not in nome_arquivo.upper():
-                continue
-                
-            sheet_njud_names.add(nome_arquivo)
-            
-            # Verificar se a coluna de status de áudio indica que já está OK
-            if idx_audio != -1 and idx_audio < len(r):
-                audio_status = r[idx_audio]
-                if audio_status and any(ok in str(audio_status).upper() for ok in ["OK", "SIM", "✔", "PRONTO", "CONCLUÍDO", "CONCLUIDO"]):
+        from core.constants import MONTH_MAP_FULL
+        
+        try:
+            for mes_folder in os.listdir(path_roteiros_base):
+                mes_path = os.path.join(path_roteiros_base, mes_folder).replace("\\", "/")
+                if not os.path.isdir(mes_path):
                     continue
-                
-            url = r[idx_url] if idx_url < len(r) else None
-            if not url or 'document/d/' not in str(url):
-                continue
-                
-            refer_val = r[idx_refer] if (idx_refer != -1 and idx_refer < len(r)) else None
-            caminho_col = obter_caminho_mes(refer_val)
-            sufixo_data = obter_sufixo_data(refer_val)
-            
-            # Padrão final de nomenclatura: NJUD + Número + Data de Veiculação
-            nome_final = f"{nome_arquivo} {sufixo_data}" if sufixo_data else nome_arquivo
-            
-            # Extrair mes_num para estruturação 5S
-            mes_num = 6
-            m_mes = re.search(r'(\d+)', caminho_col)
-            if m_mes:
+                    
+                m_mes = re.match(r'(\d+)\s*-', mes_folder)
+                if not m_mes:
+                    continue
                 mes_num = int(m_mes.group(1))
-            short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
-            folder_name = f"{mes_num:02d} - {short_name} - {ANO_SHORT}"
-            
-            # 1. Verificar na estrutura 5S (Mailing e Rádio)
-            drive_5s_base = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026", "02_JORNAIS_NJUD").replace("\\", "/")
-            drive_audio_path_5s_mailing = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name, f"{nome_final}.mp3").replace("\\", "/")
-            drive_audio_path_5s_radio = os.path.join(drive_5s_base, "03_AUDIOS_RADIO", folder_name, f"{nome_final}.mp3").replace("\\", "/")
-            
-            # 2. Verificar na estrutura tradicional antiga (legada)
-            drive_audio_path_trad = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, "EDITADOS", f"{nome_final}.mp3").replace("\\", "/")
-            drive_audio_path_trad_old = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, f"{nome_arquivo} LOC.mp3").replace("\\", "/")
-            
-            if (os.path.exists(drive_audio_path_5s_mailing) or 
-                os.path.exists(drive_audio_path_5s_radio) or 
-                os.path.exists(drive_audio_path_trad) or 
-                os.path.exists(drive_audio_path_trad_old)):
-                # O áudio final já existe no Drive (em qualquer formato), ignora!
-                print(f"  - {nome_final} (ignorado, áudio final já existe no Drive)")
-                continue
                 
-            normalized_row = (caminho_col, nome_arquivo, url, sufixo_data)
-            pendencias.append((s_name, idx + 1, normalized_row))
+                caminho_col = MONTH_MAP_FULL.get(mes_num, f"{mes_num} - MES")
+                short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
+                folder_name = f"{mes_num:02d} - {short_name} - {ANO_SHORT}"
+                
+                for file_name in os.listdir(mes_path):
+                    file_path = os.path.join(mes_path, file_name).replace("\\", "/")
+                    if not os.path.isfile(file_path):
+                        continue
+                        
+                    if file_name.startswith("desktop.ini") or file_name.startswith("."):
+                        continue
+                        
+                    suffix = os.path.splitext(file_name)[1].lower()
+                    if suffix not in [".gdoc", ".txt"]:
+                        continue
+                        
+                    nome_doc = os.path.splitext(file_name)[0]
+                    if "NJUD" not in nome_doc.upper():
+                        continue
+                        
+                    url_doc = ""
+                    if suffix == ".gdoc":
+                        url_doc = extrair_url_de_gdoc_local(file_path)
+                    elif suffix == ".txt":
+                        url_doc = file_path
+                        
+                    if not url_doc:
+                        continue
+                        
+                    sufixo_data = ""
+                    try:
+                        texto_roteiro = ""
+                        if suffix == ".txt":
+                            with open(file_path, "r", encoding="utf-8", errors="ignore") as f_r:
+                                texto_roteiro = f_r.read()
+                        else:
+                            # Para gdoc, tenta ler via API
+                            doc_id = obter_id_documento(url_doc)
+                            if doc_id:
+                                texto_roteiro = baixar_roteiro_via_api(doc_id) or ""
+                        sufixo_data = obter_sufixo_data_do_conteudo(texto_roteiro)
+                    except Exception:
+                        pass
+                        
+                    nome_final = f"{nome_doc} {sufixo_data}" if sufixo_data else nome_doc
+                    
+                    # 1. Verificar na estrutura 5S (Mailing e Rádio)
+                    drive_audio_path_5s_mailing = os.path.join(path_mailing_base, folder_name, f"{nome_final}.mp3").replace("\\", "/")
+                    drive_audio_path_5s_radio = os.path.join(path_radio_base, folder_name, f"{nome_final}.mp3").replace("\\", "/")
+                    
+                    # 2. Verificar na estrutura legada
+                    drive_audio_path_trad = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, "EDITADOS", f"{nome_final}.mp3").replace("\\", "/")
+                    drive_audio_path_trad_old = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026", caminho_col, f"{nome_doc} LOC.mp3").replace("\\", "/")
+                    
+                    if (os.path.exists(drive_audio_path_5s_mailing) or 
+                        os.path.exists(drive_audio_path_5s_radio) or 
+                        os.path.exists(drive_audio_path_trad) or 
+                        os.path.exists(drive_audio_path_trad_old)):
+                        continue
+                        
+                    normalized_row = (caminho_col, nome_doc, url_doc, sufixo_data)
+                    pendencias_fisicas.append((mes_folder, 9999, normalized_row))
+        except Exception as e_scan:
+            print(f"  [ERRO] Falha ao varrer pastas físicas do Drive para NJUD: {e_scan}")
+            
+        return pendencias_fisicas
 
-    # --- Detecção Dinâmica Complementar via Google Drive ---
-    print("\n[INFO] Escaneando Google Drive para detectar roteiros extras (não listados na planilha)...")
-    try:
-        core_dir = os.path.join(project_root, "core").replace("\\", "/")
-        if core_dir not in sys.path:
-            sys.path.append(core_dir)
-        from gdoc_exporter import CREDENTIALS_PATH, _build_drive_service
-        service_drive = _build_drive_service(CREDENTIALS_PATH)
-        
-        # Listar subpastas de 01_ROTEIROS (ID: 1UHYp4SCterbUJF27MHj3bOh6ju1OBzIG)
-        query_folders = "'1UHYp4SCterbUJF27MHj3bOh6ju1OBzIG' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        folders = service_drive.files().list(q=query_folders, fields="files(id, name)").execute().get('files', [])
-        
-        # MONTH_MAP já vem de core.constants (MONTH_MAP_FULL)
-        
-        def obter_sufixo_data_do_conteudo(texto_roteiro):
-            if not texto_roteiro:
-                return ""
-            m = re.search(r'PROGRAMA\s*(?:N[\u00ba\u00b0\.]\s*)?\d+\s*\(\s*(\d{2})[\/-](\d{2})\s*\)', texto_roteiro, re.IGNORECASE)
-            if m:
-                return f"{m.group(1)}-{m.group(2)}"
-            m2 = re.search(r'(\d{2})\s*de\s*(janeiro|fevereiro|mar\u00e7o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)', texto_roteiro, re.IGNORECASE)
-            if m2:
-                meses = ['janeiro', 'fevereiro', 'mar\u00e7o', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
-                dia = m2.group(1).zfill(2)
-                mes_nome = m2.group(2).lower()
-                if mes_nome in meses:
-                    mes = str(meses.index(mes_nome) + 1).zfill(2)
-                    return f"{dia}-{mes}"
-            return ""
-            
-        for folder in folders:
-            # Padrão: 06 - JUN - 26 ou similar
-            m_caminho = re.search(r'(\d{2})\s*-\s*([A-Z]{3})', folder['name'].upper())
-            if not m_caminho:
-                continue
-            mes_num = int(m_caminho.group(1))
-            caminho_col = MONTH_MAP_FULL.get(mes_num, "6 - JUNHO")
-            
-            # Limitar apenas aos meses relevantes (atual, anterior e futuros de 2026) para evitar buscas excessivas
-            current_month = datetime.datetime.now().month
-            prev_month = current_month - 1 if current_month > 1 else 12
-            active_months = [current_month, prev_month]
-            for m in range(current_month + 1, 13):
-                active_months.append(m)
-                
-            if mes_num not in active_months:
-                continue
-                
-            query_docs = f"'{folder['id']}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false"
-            docs = service_drive.files().list(q=query_docs, fields="files(id, name)").execute().get('files', [])
-            
-            for doc in docs:
-                nome_doc = doc['name'].strip()
-                if "NJUD" not in nome_doc.upper():
-                    continue
-                # Se o nome já está na planilha ou nas pendências já adicionadas, ignorar
-                if nome_doc in sheet_njud_names or any(p[2][1] == nome_doc for p in pendencias):
-                    continue
-                    
-                print(f"  -> Roteiro extra detectado no Drive: {nome_doc} (ID: {doc['id']})")
-                
-                # Baixar texto para tentar inferir data de veiculação
-                texto_roteiro = baixar_roteiro_via_api(doc['id'])
-                sufixo_data = obter_sufixo_data_do_conteudo(texto_roteiro)
-                
-                # Se não conseguiu obter sufixo, usar padrão vazio
-                nome_final = f"{nome_doc} {sufixo_data}" if sufixo_data else nome_doc
-                
-                # Verificar se o áudio já existe no Drive
-                drive_editados_dir = os.path.join(DRIVE_BASE_DIR, caminho_col, "EDITADOS").replace("\\", "/")
-                drive_audio_path_new = os.path.join(drive_editados_dir, f"{nome_final}.mp3").replace("\\", "/")
-                
-                drive_month_dir_old = os.path.join(DRIVE_BASE_DIR, caminho_col).replace("\\", "/")
-                drive_audio_path_old = os.path.join(drive_month_dir_old, f"{nome_doc} LOC.mp3").replace("\\", "/")
-                
-                filename_base = f"{nome_doc} {sufixo_data}" if sufixo_data else f"{nome_doc} LOC"
-                local_audio_path = os.path.join(LOCAL_WORKSPACE, "3_audio_final", f"{filename_base}.mp3").replace("\\", "/")
-                
-                if os.path.exists(drive_audio_path_new) or os.path.exists(drive_audio_path_old) or os.path.exists(local_audio_path):
-                    print(f"  - {nome_final} (ignorado, áudio final já existe localmente ou no Drive)")
-                    continue
-                    
-                url_doc = f"https://docs.google.com/document/d/{doc['id']}/edit"
-                normalized_row = (caminho_col, nome_doc, url_doc, sufixo_data)
-                
-                pendencias.append((folder['name'], 999, normalized_row))
-                print(f"  [PEND\u00caNCIA] Adicionado dinamicamente: {nome_doc} ({sufixo_data})")
-                
-    except Exception as e:
-        print(f"  [AVISO] Erro ao buscar pend\u00eancias extras no Google Drive: {e}")
-        
+    pendencias = []
+    
+    # 5. Buscar pendências via varredura de arquivos físicos (Fonte Única)
+    pendencias_drive = buscar_pendencias_njud_drive(DRIVE_ROOT)
+    pendencias.extend(pendencias_drive)
+    
     if not pendencias:
-        print("\n[INFO] Nenhuma pendência de gravação encontrada no Jornal NJUD! Todos os jornais da planilha/Drive já possuem áudio.")
+        print("\n[INFO] Nenhuma pendência de gravação encontrada no Jornal NJUD! Todos os jornais já possuem áudio.")
+        print("[PRODUCAO_COUNT] 0")
         sys.exit(0)
         
     print(f"\nTotal de pendências detectadas no NJUD: {len(pendencias)}")
@@ -671,7 +592,6 @@ async def main():
     sucessos = 0
     results = []
     
-    # Processar jornais (limitar concorrência para 2 devido a chamadas de LLM e TTS)
     sem = asyncio.Semaphore(2)
     
     async def processar_com_sem(sheet_name, row_idx, row_data):
@@ -709,9 +629,7 @@ async def main():
             local_audio_file = os.path.join(LOCAL_WORKSPACE, f"3_audio_final/{filename_base}.mp3").replace("\\", "/")
             local_txt_file = os.path.join(LOCAL_WORKSPACE, f"2_txt_revisado/{filename_base}.txt").replace("\\", "/")
             
-            # --- Caminhos Estruturados 5S de 2026 ---
             try:
-                # Extrair mes_num de caminho_col
                 mes_num = 6
                 m_mes = re.search(r'(\d+)', caminho_col)
                 if m_mes:
@@ -733,19 +651,16 @@ async def main():
                 drive_5s_audio_path_mailing = os.path.join(drive_5s_mailing_dir, f"{filename_base}.mp3").replace("\\", "/")
                 drive_5s_audio_path_radio = os.path.join(drive_5s_radio_dir, f"{filename_base}.mp3").replace("\\", "/")
                 
-                # Copiar roteiro
                 if os.path.exists(local_txt_file):
                     shutil.copy2(local_txt_file, drive_5s_txt_path)
                     print(f"  [ROTEIRO 5S] Copiado para: {drive_5s_txt_path}")
                     total_sincronizados += 1
                     
-                # Copiar áudio para mailing
                 if os.path.exists(local_audio_file):
                     shutil.copy2(local_audio_file, drive_5s_audio_path_mailing)
                     print(f"  [ÁUDIO MAILING 5S] Copiado para: {drive_5s_audio_path_mailing}")
                     total_sincronizados += 1
                     
-                # Copiar áudio para rádio
                 if os.path.exists(local_audio_file):
                     shutil.copy2(local_audio_file, drive_5s_audio_path_radio)
                     print(f"  [ÁUDIO RÁDIO 5S] Copiado para: {drive_5s_audio_path_radio}")
@@ -755,6 +670,20 @@ async def main():
                 
         print(f"Sincronização com o Drive concluída! Total de arquivos copiados: {total_sincronizados}")
         
+    # Limpar lixo do workspace local (padrão 5S)
+    try:
+        for folder in ["1_txt_bruto", "2_txt_revisado", "3_audio_final"]:
+            dir_to_clean = os.path.join(LOCAL_WORKSPACE, folder)
+            if os.path.exists(dir_to_clean):
+                for filename in os.listdir(dir_to_clean):
+                    file_path = os.path.join(dir_to_clean, filename)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+        print("  [LIMPEZA 5S] Lixo local limpo no workspace de NJUD.")
+    except Exception as e_clean:
+        print(f"  [AVISO] Falha ao limpar workspace local: {e_clean}")
+        
+    print(f"\n[PRODUCAO_COUNT] {sucessos}")
     print("\n=== PIPELINE DO NJUD CONCLUÍDO ===")
 
 if __name__ == "__main__":

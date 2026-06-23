@@ -77,8 +77,31 @@ class PipelineEngine:
             with open(self.recipe.assembly.profile_path, 'r', encoding='utf-8') as f:
                 profile = json.load(f)
                 
-        assets_map = profile.get("assets", {})
-        trilhas_map = profile.get("trilhas", {})
+        # Definir raiz do projeto para resolver caminhos relativos de assets
+        project_root_dir = pathlib.Path(__file__).parent.parent
+        
+        raw_assets_map = profile.get("assets", {})
+        assets_map = {}
+        for k, v in raw_assets_map.items():
+            if v:
+                p_val = pathlib.Path(v)
+                if not p_val.is_absolute():
+                    p_val = project_root_dir / p_val
+                assets_map[k] = str(p_val).replace("\\", "/")
+            else:
+                assets_map[k] = None
+
+        raw_trilhas_map = profile.get("trilhas", {})
+        trilhas_map = {}
+        for k, v in raw_trilhas_map.items():
+            if v:
+                p_val = pathlib.Path(v)
+                if not p_val.is_absolute():
+                    p_val = project_root_dir / p_val
+                trilhas_map[k] = str(p_val).replace("\\", "/")
+            else:
+                trilhas_map[k] = None
+
         config = profile.get("configuracoes_mixagem", {
             "volume_bg_base": -5,
             "volume_bg_ducking": -18,

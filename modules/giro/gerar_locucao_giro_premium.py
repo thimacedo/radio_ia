@@ -13,7 +13,19 @@ BASE_DIR    = Path(r"E:\NJUD")
 GIRO_DIR    = BASE_DIR / "PROGRAMA GIRO NAS COMARCAS"
 INPUT_DIR   = GIRO_DIR / "tts_txt_revisado"
 OUTPUT_DIR  = GIRO_DIR / "tts_mp3_premium"
-VHT_DIR     = Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\PROGRAMAS\PROGRAMA GIRO NAS COMARCAS (10min)\_VHT")
+
+# Tenta usar .env primeiro; fallback para path local (compatível com instaladores)
+import sys
+import os as _os
+_current = _os.path.dirname(_os.path.abspath(__file__)).replace("\\", "/")
+_project_root = _os.path.dirname(_os.path.dirname(_current)).replace("\\", "/")
+sys.path.insert(0, _project_root)
+try:
+    from core.best_practices import carregar_env_var
+    _vht_fallback = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\PROGRAMAS\PROGRAMA GIRO NAS COMARCAS (10min)\_VHT"
+    VHT_DIR = Path(carregar_env_var("DRIVE_GIRO_VHT_DIR", _vht_fallback))
+except Exception:
+    VHT_DIR = Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\PROGRAMAS\PROGRAMA GIRO NAS COMARCAS (10min)\_VHT")
 
 # Criar pasta de saída se não existir
 OUTPUT_DIR.mkdir(exist_ok=True)

@@ -22,7 +22,7 @@ SPREADSHEET_ID = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
 BOLETINS_INPUT_DIR = current_dir # Excel é baixado aqui
 DRIVE_ROOT = pathlib.Path(carregar_env_var("DRIVE_ROOT", r"H:\Meu Drive\RADIO TJRN CONTEÚDO"))
-BOLETINS_OUTPUT_DIR = DRIVE_ROOT / "0-BOLETINS"
+BOLETINS_OUTPUT_DIR = DRIVE_ROOT / "00_PRODUCAO_2026" / "01_BOLETINS_DIARIOS"
 LOCAL_WORK_DIR = current_dir / "workspace"
 VHT_DIR = project_root / "assets" / "vht"
 

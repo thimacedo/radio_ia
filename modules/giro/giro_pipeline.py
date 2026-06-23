@@ -26,63 +26,62 @@ GIRO_DRIVE_INPUT = current_dir # Excel baixado aqui
 GIRO_DRIVE_OUTPUT = pathlib.Path(carregar_env_var("DRIVE_GIRO_OUTPUT_DIR", r"H:\Meu Drive\RADIO TJRN CONTEÚDO\PROGRAMAS\PROGRAMA GIRO NAS COMARCAS (10min)"))
 LOCAL_WORK_DIR = project_root / "modules" / "giro" / "workspace"
 
-def fetch_giro_from_sheet(txt_dir: pathlib.Path):
-    """Baixa a planilha do Giro e faz o download dos textos do Google Docs pendentes."""
-    print("Baixando planilha de controle do Giro...")
-    txt_dir.mkdir(parents=True, exist_ok=True)
-    local_xlsx = GIRO_DRIVE_INPUT / "GIRO_ATUAL.xlsx"
-    try:
-        urllib.request.urlretrieve(SHEET_URL, local_xlsx)
-    except Exception as e:
-        print(f"[ERRO] Falha ao baixar a planilha: {e}")
-        return 0
-
-    wb = openpyxl.load_workbook(local_xlsx, data_only=True)
-    count = 0
+def buscar_pendencias_giro_drive(drive_root):
+    print("\n[Mapeamento Físico] Varrendo pastas de Giro nas Comarcas no Google Drive...")
+    path_roteiros_base = os.path.join(drive_root, "00_PRODUCAO_2026", "03_GIRO_NAS_COMARCAS", "01_ROTEIROS").replace("\\", "/")
+    path_audios_base = os.path.join(drive_root, "00_PRODUCAO_2026", "03_GIRO_NAS_COMARCAS").replace("\\", "/")
     
-    # Processa todas as abas
-    for s_name in wb.sheetnames:
-        ws = wb[s_name]
+    pendencias_fisicas = []
+    
+    if not os.path.exists(path_roteiros_base):
+        print(f"  [AVISO] Pasta base de roteiros do Giro não encontrada: {path_roteiros_base}")
+        return []
         
-        # Pula cabeçalho, começa na linha 2
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if not row or not any(row): continue
-            
-            caminho = str(row[0]).strip() if row[0] else ""
-            nome = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-            url = str(row[2]).strip() if len(row) > 2 and row[2] else ""
-            status = str(row[3]).strip().lower() if len(row) > 3 and row[3] else ""
-            
-            if not nome or "docs.google.com" not in url:
+    from core.constants import folder_name_5s, ANO_SHORT
+    
+    # Varre recursivamente a pasta de roteiros do Giro
+    for root, dirs, files in os.walk(path_roteiros_base):
+        for file_name in files:
+            if file_name.startswith("desktop.ini") or file_name.startswith("."):
                 continue
                 
-            if "✔" not in status and "ok" not in status:
-                print(f"  - Baixando pendência: {nome}...")
-                try:
-                    # Extrair o ID do doc da URL
-                    match = re.search(r"[?&/](?:id=|d/)([a-zA-Z0-9_-]{25,})", url)
-                    if match:
-                        doc_id = match.group(1)
-                        # Sanitizar nome do arquivo (remove barras e caracteres ilegais)
-                        safe_name = re.sub(r'[\\/*?:"<>|]', "-", nome)
-                        
-                        # Salva temporariamente um .gdoc mockado para o exporter ler
-                        temp_gdoc = txt_dir / f"{safe_name}.gdoc"
-                        temp_gdoc.write_text(f'{{"doc_id": "{doc_id}"}}', encoding="utf-8")
-                        
-                        texto_extraido = export_gdoc_to_txt(temp_gdoc)
-                        
-                        # Salva o txt limpo
-                        file_name = f"{safe_name}.txt"
-                        (txt_dir / file_name).write_text(texto_extraido, encoding="utf-8")
-                        temp_gdoc.unlink() # remove temp
-                        count += 1
-                        print(f"    [OK] {nome} extraído.")
-                except Exception as e:
-                    print(f"    [ERRO] Falha ao extrair Google Doc para {nome}: {e}")
-
-    print(f"[{count}] novos roteiros do Giro extraídos da planilha.")
-    return count
+            suffix = os.path.splitext(file_name)[1].lower()
+            if suffix not in [".gdoc", ".txt"]:
+                continue
+                
+            nome_doc = os.path.splitext(file_name)[0]
+            if "GIRO" not in nome_doc.upper():
+                continue
+                
+            file_path = os.path.join(root, file_name).replace("\\", "/")
+            
+            # Extrair mês do nome do arquivo
+            mes_num = None
+            month_match = re.search(r"[-_](\d{2})", nome_doc)
+            if month_match:
+                mes_num = int(month_match.group(1))
+            else:
+                # Se não encontrar no nome, tenta extrair da pasta correspondente
+                parent_folder = os.path.basename(root)
+                sub_match = re.match(r"(\d+)\s*-", parent_folder)
+                if sub_match:
+                    mes_num = int(sub_match.group(1))
+                else:
+                    from datetime import datetime
+                    mes_num = datetime.now().month
+                    
+            folder_name = folder_name_5s(mes_num, ANO_SHORT)
+            
+            # Verificar se já existe o áudio correspondente na pasta de áudio do respectivo mês
+            drive_audio_path = os.path.join(path_audios_base, folder_name, f"{nome_doc}.mp3").replace("\\", "/")
+            
+            if os.path.exists(drive_audio_path):
+                continue
+                
+            print(f"  [PENDÊNCIA DETECTADA VIA DRIVE] Giro: '{nome_doc}' -> Sem áudio em '{folder_name}'.")
+            pendencias_fisicas.append((nome_doc, file_path, folder_name))
+            
+    return pendencias_fisicas
 
 SYSTEM_PROMPT = """Você é um especialista em edição de roteiros de radiojornalismo. Sua tarefa é processar o texto recebido para o programa 'Giro nas Comarcas' e entregá-lo formatado para síntese de voz e edição automática.
 
@@ -155,35 +154,83 @@ if __name__ == "__main__":
     motor = PipelineEngine(receita_giro)
     
     async def run_giro():
-        print("Sincronizando com a Planilha de Controle...")
-        fetch_giro_from_sheet(motor.txt_dir)
+        drive_root = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
         
-        print("\nIniciando o processamento dos roteiros na pasta local 1_txt_bruto do Giro...")
+        print("Buscando pendências físicas de Giro no Drive...")
+        pendencias = buscar_pendencias_giro_drive(drive_root)
+        
+        if not pendencias:
+            print("\n[INFO] Nenhuma pendência do Giro nas Comarcas encontrada! Tudo finalizado.")
+            print("[PRODUCAO_COUNT] 0")
+            sys.exit(0)
+            
+        print(f"\nTotal de pendências detectadas no Giro: {len(pendencias)}")
+        
+        # 1. Extrair os roteiros para a pasta de trabalho local
+        motor.txt_dir.mkdir(parents=True, exist_ok=True)
+        for nome_doc, file_path, folder_name in pendencias:
+            suffix = os.path.splitext(file_path)[1].lower()
+            try:
+                if suffix == ".gdoc":
+                    texto = export_gdoc_to_txt(pathlib.Path(file_path))
+                else:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f_in:
+                        texto = f_in.read()
+                
+                dest_txt = motor.txt_dir / f"{nome_doc}.txt"
+                dest_txt.write_text(texto, encoding="utf-8")
+                print(f"  [OK] Roteiro extraído para {dest_txt.name}")
+            except Exception as e_ext:
+                print(f"  [ERRO] Falha ao extrair/copiar roteiro de {file_path}: {e_ext}")
+                
+        print("\nIniciando o processamento dos roteiros do Giro...")
         files = sorted([f for f in motor.txt_dir.glob("*.txt") if not f.name.endswith(".bak")])
         
-        month_map_giro = {f"{k:02d}": f"{k} - {v}" for k, v in MONTH_MAP_SHORT.items()}
+        from core.constants import folder_name_5s, ANO_SHORT
+        import shutil
         
+        sucessos = 0
         for idx, f in enumerate(files):
             subfolder = ""
-            ano = "2026" # Assumindo o ano padrão se não especificado no nome
-            if "2025" in f.name:
-                ano = "2025"
-
+            
             # Procura por padrão de data DD-MM no nome do arquivo (ex: 09-06)
             month_match = re.search(r"-(\d{2})", f.name) 
             if month_match:
-                mes_num = month_match.group(1)
-                mes_pasta = month_map_giro.get(mes_num, "")
-                if mes_pasta:
-                    subfolder = f"{ano}/{mes_pasta}"
+                mes_num = int(month_match.group(1))
+                subfolder = folder_name_5s(mes_num, ANO_SHORT)
             else:
-                # Fallback para o mês/ano atual para manter a organização 5S
                 from datetime import datetime
-                now = datetime.now()
-                mes_num = f"{now.month:02d}"
-                mes_pasta = month_map_giro.get(mes_num, "6 - JUN")
-                subfolder = f"{now.year}/{mes_pasta}"
+                mes_num = datetime.now().month
+                subfolder = folder_name_5s(mes_num, ANO_SHORT)
             
-            await motor.run_file(f, file_idx=idx, subfolder=subfolder)
+            try:
+                await motor.run_file(f, file_idx=idx, subfolder=subfolder)
+                sucessos += 1
+                
+                # Copiar o roteiro revisado txt para a pasta correspondente no Drive
+                local_rev = motor.rev_dir / f.name
+                if local_rev.exists():
+                    drive_roteiro_dir = pathlib.Path(drive_root) / "00_PRODUCAO_2026" / "03_GIRO_NAS_COMARCAS" / "01_ROTEIROS" / subfolder
+                    drive_roteiro_dir.mkdir(parents=True, exist_ok=True)
+                    drive_roteiro_dest = drive_roteiro_dir / f.name
+                    shutil.copy2(local_rev, drive_roteiro_dest)
+                    print(f"  [ROTEIRO 5S] Copiado de volta para: {drive_roteiro_dest}")
+            except Exception as e_proc:
+                print(f"  [ERRO] Falha no processamento de {f.name}: {e_proc}")
+                
+        # Limpar lixo do workspace local (padrão 5S)
+        try:
+            for folder in ["1_txt_bruto", "2_txt_revisado", "3_audio_final"]:
+                dir_to_clean = LOCAL_WORK_DIR / folder
+                if dir_to_clean.exists():
+                    for file_path in dir_to_clean.iterdir():
+                        if file_path.is_file():
+                            file_path.unlink()
+            print("  [LIMPEZA 5S] Lixo local limpo no workspace de Giro.")
+        except Exception as e_clean:
+            print(f"  [AVISO] Falha ao limpar workspace local: {e_clean}")
+            
+        print(f"\n[PRODUCAO_COUNT] {sucessos}")
+        print("\n=== PIPELINE DO GIRO CONCLUÍDO ===")
             
     asyncio.run(run_giro())

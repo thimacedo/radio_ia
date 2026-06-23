@@ -533,12 +533,12 @@ def analisar_e_corrigir_planilha_boletins(drive_service):
         
     return True
 
-def _run_pipeline(nome: str, script_path: str, progress: float) -> bool:
+def _run_pipeline(nome: str, script_path: str, progress: float) -> tuple[bool, int]:
     atualizar_status_dashboard("Executando", progress, f"Executando pipeline de {nome}...")
     print(f"  -> Iniciando {nome}: {script_path}")
     try:
         res = subprocess.run(
-            [sys.executable, script_path],
+            [sys.executable, "-u", script_path],
             capture_output=True,
             text=True,
             encoding='utf-8',
@@ -549,33 +549,121 @@ def _run_pipeline(nome: str, script_path: str, progress: float) -> bool:
         if res.stderr:
             print(f"----- {nome} Errors -----")
             print(res.stderr)
+            
         ok = res.returncode == 0
+        
+        # Capturar [PRODUCAO_COUNT] do output do script
+        count = 0
+        match_count = re.search(r'\[PRODUCAO_COUNT\]\s*(\d+)', res.stdout)
+        if match_count:
+            count = int(match_count.group(1))
+            
         if ok:
-            registrar_log_5s(f"Pipeline de {nome} concluído com sucesso.")
+            registrar_log_5s(f"Pipeline de {nome} concluído com sucesso (produzidas: {count}).")
         else:
             registrar_log_5s(f"AVISO: Pipeline de {nome} falhou com código de saída {res.returncode}.")
-        return ok
+        return ok, count
     except Exception as e:
         registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de {nome}: {e}")
-        return False
+        return False, 0
+
+def autodescobrir_planilhas_drive(drive_service):
+    # Desativado conforme simplificação do agente
+    pass
+
+def mapear_programas_e_pipelines():
+    """
+    Varre a pasta física de produção 00_PRODUCAO_2026 no Drive e mapeia
+    dinamicamente as relações com os módulos de execução locais.
+    """
+    print("\n[Agente] Mapeando dinamicamente os programas de produção ativa...")
+    producao_dir = os.path.join(DRIVE_ROOT, "00_PRODUCAO_2026").replace("\\", "/")
+    if not os.path.exists(producao_dir):
+        print(f"  [AVISO] Pasta de produção não encontrada localmente: {producao_dir}")
+        return []
+        
+    programas_detectados = []
+    
+    regras_modulos = {
+        "01_BOLETINS_DIARIOS": {
+            "module_dir": "modules/boletins",
+            "scripts": ["gerar_boletins_tts.py", "boletins_pipeline.py"],
+            "label": "Boletins"
+        },
+        "02_JORNAIS_NJUD": {
+            "module_dir": "modules/jornal",
+            "scripts": ["gerar_njud_tts.py", "njud_pipeline.py"],
+            "label": "Jornal NJUD"
+        },
+        "03_GIRO_NAS_COMARCAS": {
+            "module_dir": "modules/giro",
+            "scripts": ["giro_pipeline.py"],
+            "label": "Giro nas Comarcas"
+        }
+    }
+    
+    try:
+        for item in os.listdir(producao_dir):
+            item_path = os.path.join(producao_dir, item).replace("\\", "/")
+            if not os.path.isdir(item_path):
+                continue
+                
+            if item in regras_modulos:
+                config_regra = regras_modulos[item]
+                modulo_rel = config_regra["module_dir"]
+                modulo_abs = os.path.join(project_root, modulo_rel).replace("\\", "/")
+                
+                if os.path.exists(modulo_abs):
+                    script_encontrado = None
+                    for script_name in config_regra["scripts"]:
+                        script_path = os.path.join(modulo_abs, script_name).replace("\\", "/")
+                        if os.path.exists(script_path):
+                            script_encontrado = script_path
+                            break
+                            
+                    if script_encontrado:
+                        programas_detectados.append({
+                            "label": config_regra["label"],
+                            "drive_folder": item_path,
+                            "script_path": script_encontrado
+                        })
+                        print(f"  [Auto-Mapeamento] Detectado Programa: '{config_regra['label']}' -> Script: {script_encontrado}")
+    except Exception as e_map:
+        print(f"  [AVISO] Erro ao varrer programas no Drive: {e_map}")
+                    
+    return programas_detectados
 
 def executar_pipelines():
     print("\n[Agente] Disparando pipelines de gravação física (subprocessos)...")
     
-    script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
-    boletins_ok = _run_pipeline("Boletins", script_boletins, 0.40)
+    programas = mapear_programas_e_pipelines()
     
-    script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
-    njud_ok = _run_pipeline("Jornal NJUD", script_njud, 0.60)
+    if not programas:
+        print("  [AVISO] Nenhum programa mapeado ativamente. Usando execução estática de fallback...")
+        script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
+        boletins_ok, boletins_count = _run_pipeline("Boletins", script_boletins, 0.40)
+        
+        script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
+        njud_ok, njud_count = _run_pipeline("Jornal NJUD", script_njud, 0.60)
+        
+        script_giro = os.path.join(project_root, "modules/giro/giro_pipeline.py").replace("\\", "/")
+        giro_ok, giro_count = _run_pipeline("Giro nas Comarcas", script_giro, 0.80)
+        
+        return {
+            "boletins": {"ok": boletins_ok, "count": boletins_count},
+            "jornal njud": {"ok": njud_ok, "count": njud_count},
+            "giro nas comarcas": {"ok": giro_ok, "count": giro_count}
+        }
+        
+    status = {}
+    num_programas = len(programas)
     
-    script_giro = os.path.join(project_root, "modules/giro/giro_pipeline.py").replace("\\", "/")
-    giro_ok = _run_pipeline("Giro nas Comarcas", script_giro, 0.80)
-
-    return {
-        "boletins": boletins_ok,
-        "njud": njud_ok,
-        "giro": giro_ok
-    }
+    for idx, prog in enumerate(programas):
+        progresso = 0.30 + ((idx + 1) / num_programas) * 0.50
+        ok, count = _run_pipeline(prog["label"], prog["script_path"], progresso)
+        status[prog["label"].lower()] = {"ok": ok, "count": count}
+        
+    return status
 
 def obter_sufixo_data_njud(refer_val):
     if not refer_val:
@@ -666,13 +754,18 @@ def verificar_e_atualizar_planilha_njud(drive_service):
                 f"{obter_caminho_mes_njud_5s(caminho_col)}", f"{nome_final}.mp3"
             ).replace("\\", "/")
             
+            drive_audio_path_5s_radio = os.path.join(
+                NJUD_DRIVE_BASE, "03_AUDIOS_RADIO", 
+                f"{obter_caminho_mes_njud_5s(caminho_col)}", f"{nome_final}.mp3"
+            ).replace("\\", "/")
+            
             # Caminho físico no drive tradicional
             drive_audio_path_trad = os.path.join(
                 DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026",
                 caminho_col, "EDITADOS", f"{nome_final}.mp3"
             ).replace("\\", "/")
             
-            if os.path.exists(drive_audio_path_5s) or os.path.exists(drive_audio_path_trad):
+            if os.path.exists(drive_audio_path_5s) or os.path.exists(drive_audio_path_5s_radio) or os.path.exists(drive_audio_path_trad):
                 ws.cell(row=r_idx, column=idx_audio + 1, value="✔")
                 # Console e log seguro
                 registrar_log_5s(f"Auditoria NJUD: marcado status [OK] na planilha para {nome_final} (Edição Gerada).")
@@ -716,19 +809,9 @@ def run_agent_once(drive_service):
             return
             
         t_start = time.time()
-            
-        atualizar_status_dashboard("Executando", 0.20, "Corrigindo inconsistências na planilha de Boletins...")
-        # 2. Corrigir inconsistências
-        if drive_service:
-            analisar_e_corrigir_planilha_boletins(drive_service)
-            
-        # 3. Executar scripts originais (Fallback)
-        pipeline_status = executar_pipelines()
         
-        atualizar_status_dashboard("Executando", 0.90, "Auditando e atualizando planilha do NJUD...")
-        # 4. Auditar e fechar planilhas locais
-        if drive_service:
-            verificar_e_atualizar_planilha_njud(drive_service)
+        # 2. Executar pipelines de gravação física (Varredura física dinâmica)
+        pipeline_status = executar_pipelines()
         
         duration = time.time() - t_start
         
@@ -737,10 +820,11 @@ def run_agent_once(drive_service):
         print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
         print("="*60)
         
+        # Notificação estruturada com chaves e contagens corrigidas
         enviar_notificacao("notificar_relatorio_diario", {
-            "boletins": {"ok": pipeline_status.get("boletins", False), "count": 0},
-            "njud":     {"ok": pipeline_status.get("njud", False), "count": 0},
-            "giro":     {"ok": pipeline_status.get("giro", False), "count": 0},
+            "boletins": pipeline_status.get("boletins", {"ok": False, "count": 0}),
+            "njud":     pipeline_status.get("jornal njud", {"ok": False, "count": 0}),
+            "giro":     pipeline_status.get("giro nas comarcas", {"ok": False, "count": 0}),
             "conflitos_corrigidos": 0,
             "duracao_total_s": duration
         })
