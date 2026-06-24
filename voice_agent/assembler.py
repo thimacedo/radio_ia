@@ -6,7 +6,11 @@ API principal:
 
 from typing import List, Dict, Optional
 from pathlib import Path
-from pydub import AudioSegment
+
+try:
+    from pydub import AudioSegment
+except ImportError:
+    AudioSegment = None
 
 from .asset_manager import load_assets, load_program_config
 
@@ -51,6 +55,9 @@ def assemble(program: str, clean_wav_path: str, cuts: List[Dict], output_path: s
 
     base_audio = AudioSegment.from_wav(clean_wav_path)
     voz_audio = _apply_cuts(base_audio, cuts)
+
+    if AudioSegment is None:
+        raise ImportError("pydub is required to run assembler. Install it with pip install pydub.")
 
     result = AudioSegment.silent(duration=0)
     bg_audio = None
