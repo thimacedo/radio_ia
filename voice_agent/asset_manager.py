@@ -32,6 +32,8 @@ def load_assets(program: str) -> dict:
     assets = {}
     assets_cfg = config.get("assets", {}) if isinstance(config, dict) else {}
     for key, fname in assets_cfg.items():
+        if fname is None:
+            continue
         p = ASSETS_ROOT / program / fname
         if not p.exists():
             # fallback to global assets directory

@@ -31,14 +31,24 @@ def transcribe(file_path: str, model_name: str = "medium", language: Optional[st
         ]
 
     model = whisper.load_model(model_name)
-    result = model.transcribe(str(file_p), language=language)
+    result = model.transcribe(str(file_p), language=language, word_timestamps=True, condition_on_previous_text=False)
     segments = []
     for s in result.get("segments", []):
+        words = []
+        for w in s.get("words", []):
+            words.append({
+                "start": float(w.get("start", 0.0)),
+                "end": float(w.get("end", 0.0)),
+                "text": w.get("word", "").strip(),
+                "confidence": w.get("probability", None)
+            })
+            
         segments.append({
             "start": float(s.get("start", 0.0)),
             "end": float(s.get("end", 0.0)),
             "text": s.get("text", "").strip(),
             "confidence": s.get("avg_logprob", None),
+            "words": words
         })
     return segments
 

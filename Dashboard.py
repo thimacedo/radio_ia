@@ -285,67 +285,221 @@ elif pagina == "🟢 Aprovação de Áudio":
         url = f"{voice_agent_url}{endpoint}"
         return _http_request(method, url, payload)
 
-    with st.form("voice_approval_form"):
-        st.subheader("✅ Aprovar e montar")
-        program = st.text_input("Programa", value="", help="ID do programa usado na configuração de áudio e montagem.")
-        arquivo_clean = st.text_input("Arquivo clean aprovado", value="", help="Caminho completo do arquivo WAV processado.")
-        cortes_json = st.text_area("Cortes aprovados (JSON)", value="[]", height=120,
-                                  help="Informe uma lista JSON de cortes: [{\"start_ms\": 1000, \"end_ms\": 3000}]")
-        approve_button = st.form_submit_button("✅ Aprovar e montar")
+    # Inicializa variáveis no session_state
+    if "active_job_id" not in st.session_state:
+        st.session_state["active_job_id"] = ""
+    if "active_job_data" not in st.session_state:
+        st.session_state["active_job_data"] = None
 
-        if approve_button:
-            try:
-                cortes = json.loads(cortes_json or "[]")
-                status_code, data = call_voice_agent("POST", "/voice/approve", {
-                    "program": program,
-                    "arquivo_clean": arquivo_clean,
-                    "cortes": cortes,
+    # --- SEÇÃO INTERATIVA ---
+    st.subheader("🔍 Carregar Job de Áudio para Edição")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        job_status_id_input = st.text_input("ID do Job do Fatiador (Claquete)", value=st.session_state["active_job_id"])
+    with col2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        buscar = st.button("🔎 Buscar")
+
+    if buscar:
+        if not job_status_id_input.strip():
+            st.error("Informe o Job ID.")
+        else:
+            status_code, data = call_voice_agent("GET", f"/voice/status/{job_status_id_input.strip()}")
+            if status_code == 200:
+                st.session_state["active_job_id"] = job_status_id_input.strip()
+                st.session_state["active_job_data"] = data
+                st.success("Job carregado com sucesso!")
+            else:
+                st.error(f"Falha ao obter job (Código {status_code})")
+                st.json(data)
+
+    active_data = st.session_state["active_job_data"]
+    if active_data:
+        st.markdown("---")
+        st.markdown(f"### 📋 Editando: `{st.session_state['active_job_id']}`")
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Programa", active_data.get("program", "Default").upper())
+        c2.metric("Status", active_data.get("status", "desconhecido").upper())
+        c3.metric("Fração/Claquete", active_data.get("bulletin_id", "N/A"))
+
+        st.markdown(f"**Caminho Cabeça:** `{active_data.get('cabeca_path')}`")
+        if active_data.get("off_path"):
+            st.markdown(f"**Caminho OFF:** `{active_data.get('off_path')}`")
+
+        # Exibir link para relatório HTML local
+        report_path = active_data.get("report")
+        if report_path:
+            st.info(f"📄 Relatório de Edição Detalhado disponível em: `{report_path}`")
+
+        issues = active_data.get("issues", [])
+        if issues:
+            st.markdown("#### ✂️ Selecione os trechos para remoção:")
+            
+            cabeca_choices = []
+            off_choices = []
+            
+            for idx, issue in enumerate(issues):
+                part = issue.get("part", "cabeca")
+                text_snippet = issue.get("text", "")
+                issue_type = issue.get("type", "desconhecido").replace("_", " ").title()
+                severity = issue.get("severity", "ATENCAO")
+                start_s = issue.get("start", 0)
+                end_s = issue.get("end", 0)
+                suggested = issue.get("suggested_cut")
+                
+                if suggested:
+                    # Rótulo amigável
+                    label_desc = f"**{issue_type}** ({severity}) em **{part.upper()}** de {start_s:.2f}s a {end_s:.2f}s"
+                    st.markdown(label_desc)
+                    # Mostrar o trecho repetido ou cortado
+                    st.caption(f'Trecho: "{text_snippet}"')
+                    
+                    # Checkbox para aprovação do corte
+                    default_checked = severity == "ALTO" or "retake" in issue_type.lower()
+                    checked = st.checkbox("Remover este trecho do áudio final", value=default_checked, key=f"cut_{idx}")
+                    
+                    if checked:
+                        cut_ms = {
+                            "start_ms": int(suggested["start"] * 1000),
+                            "end_ms": int(suggested["end"] * 1000)
+                        }
+                        if part == "off":
+                            off_choices.append(cut_ms)
+                        else:
+                            cabeca_choices.append(cut_ms)
+                    st.markdown("<hr style='margin: 8px 0; border: 0; border-top: 1px solid #eee;' />", unsafe_allow_html=True)
+                else:
+                    st.warning(f"⚠️ **Alerta (Sem corte possível):** {issue_type} às {start_s:.2f}s: \"{text_snippet}\"")
+
+            col_app, col_rej = st.columns(2)
+            with col_app:
+                if st.button("✅ Aprovar Cortes e Iniciar Montagem", use_container_width=True):
+                    payload = {
+                        "program": active_data.get("program"),
+                        "arquivo_clean": active_data.get("cabeca_path"),
+                        "cabeca_path": active_data.get("cabeca_path"),
+                        "off_path": active_data.get("off_path"),
+                        "cortes": {
+                            "cabeca_cuts": cabeca_choices,
+                            "off_cuts": off_choices
+                        },
+                        "job_id": st.session_state["active_job_id"]
+                    }
+                    with st.spinner("Enviando aprovação..."):
+                        status_code, data = call_voice_agent("POST", "/voice/approve", payload)
+                        if status_code == 200:
+                            st.success(f"Montagem iniciada com sucesso! ID: {data.get('job_id')}")
+                            st.session_state["active_job_data"]["status"] = "accepted"
+                        else:
+                            st.error(f"Erro ao processar aprovação (Código {status_code})")
+                            st.json(data)
+            with col_rej:
+                # Botão simples para rejeitar direto
+                motivo_rej = st.text_input("Motivo da rejeição (opcional):", key="rej_motivo")
+                if st.button("❌ Rejeitar Áudio Completo", use_container_width=True):
+                    payload_rej = {
+                        "program": active_data.get("program"),
+                        "arquivo_clean": active_data.get("cabeca_path"),
+                        "motivo": motivo_rej,
+                        "job_id": st.session_state["active_job_id"]
+                    }
+                    with st.spinner("Rejeitando..."):
+                        status_code, data = call_voice_agent("POST", "/voice/reject", payload_rej)
+                        if status_code == 200:
+                            st.warning("Áudio rejeitado.")
+                            st.session_state["active_job_data"]["status"] = "rejected"
+                        else:
+                            st.error(f"Erro ao rejeitar: {status_code}")
+        else:
+            st.success("Nenhum problema de locução ou repetição detectado neste áudio!")
+            if st.button("✅ Aprovar sem Cortes e Montar", use_container_width=True):
+                payload = {
+                    "program": active_data.get("program"),
+                    "arquivo_clean": active_data.get("cabeca_path"),
+                    "cabeca_path": active_data.get("cabeca_path"),
+                    "off_path": active_data.get("off_path"),
+                    "cortes": {"cabeca_cuts": [], "off_cuts": []},
+                    "job_id": st.session_state["active_job_id"]
+                }
+                status_code, data = call_voice_agent("POST", "/voice/approve", payload)
+                if status_code == 200:
+                    st.success("Montagem iniciada!")
+                else:
+                    st.error("Erro ao aprovar")
+
+    st.markdown("---")
+    st.subheader("🛠️ Ferramentas Manuais de Fallback")
+    
+    with st.expander("Aprovar e Montar (Manual com JSON)"):
+        with st.form("voice_approval_form"):
+            st.subheader("✅ Aprovar e montar manualmente")
+            manual_job_id = st.text_input("Job ID (Opcional)", value="", help="ID do Job se já existente.")
+            manual_program = st.text_input("Programa", value="", help="ID do programa usado na configuração de áudio e montagem.")
+            manual_arquivo_clean = st.text_input("Arquivo clean (Cabeça)", value="", help="Caminho completo do arquivo WAV processado (Cabeça).")
+            manual_off_path = st.text_input("Arquivo Off (Opcional)", value="", help="Caminho completo do arquivo WAV processado (OFF).")
+            manual_cortes_json = st.text_area("Cortes aprovados (JSON)", value="[]", height=120,
+                                      help="Para único: [{\"start_ms\":...}]. Para multipart: {\"cabeca_cuts\": [], \"off_cuts\": []}")
+            approve_button = st.form_submit_button("✅ Enviar Aprovação")
+
+            if approve_button:
+                try:
+                    cortes = json.loads(manual_cortes_json or "[]")
+                    payload = {
+                        "program": manual_program,
+                        "arquivo_clean": manual_arquivo_clean,
+                        "cabeca_path": manual_arquivo_clean,
+                        "off_path": manual_off_path if manual_off_path.strip() else None,
+                        "cortes": cortes,
+                    }
+                    if manual_job_id.strip():
+                        payload["job_id"] = manual_job_id.strip()
+                        
+                    status_code, data = call_voice_agent("POST", "/voice/approve", payload)
+                    if status_code == 200:
+                        st.success(f"Montagem iniciada. Job ID: {data.get('job_id')}")
+                        st.json(data)
+                    else:
+                        st.error(f"Falha ao chamar Voice Agent: {status_code}")
+                        st.json(data)
+                except Exception as e:
+                    st.error(f"Erro ao processar aprovação: {e}")
+
+    with st.expander("Rejeitar Gravação Manual"):
+        with st.form("voice_rejection_form"):
+            rejected_program = st.text_input("Programa (rejeição)", value="")
+            rejected_audio = st.text_input("Arquivo clean", value="")
+            motivo = st.text_area("Motivo da rejeição", value="", height=120)
+            reject_button = st.form_submit_button("❌ Rejeitar")
+
+            if reject_button:
+                status_code, data = call_voice_agent("POST", "/voice/reject", {
+                    "program": rejected_program,
+                    "arquivo_clean": rejected_audio,
+                    "motivo": motivo,
                 })
                 if status_code == 200:
-                    st.success(f"Montagem iniciada. Job ID: {data.get('job_id')}")
+                    st.success(f"Rejeição registrada. Job ID: {data.get('job_id')}")
                     st.json(data)
                 else:
-                    st.error(f"Falha ao chamar Voice Agent: {status_code}")
+                    st.error(f"Falha ao chamar Voice Agent para rejeição: {status_code}")
                     st.json(data)
-            except Exception as e:
-                st.error(f"Erro ao processar aprovação: {e}")
 
-    with st.form("voice_rejection_form"):
-        st.subheader("❌ Rejeitar gravação")
-        rejected_program = st.text_input("Programa (rejeição)", value="")
-        rejected_audio = st.text_input("Arquivo clean", value="")
-        motivo = st.text_area("Motivo da rejeição", value="", height=120)
-        reject_button = st.form_submit_button("❌ Rejeitar")
+    with st.expander("Consultar Status Bruto (JSON)"):
+        with st.form("voice_status_form"):
+            job_status_id = st.text_input("Job ID", value="")
+            query_button = st.form_submit_button("🔎 Consultar")
 
-        if reject_button:
-            status_code, data = call_voice_agent("POST", "/voice/reject", {
-                "program": rejected_program,
-                "arquivo_clean": rejected_audio,
-                "motivo": motivo,
-            })
-            if status_code == 200:
-                st.success(f"Rejeição registrada. Job ID: {data.get('job_id')}")
-                st.json(data)
-            else:
-                st.error(f"Falha ao chamar Voice Agent para rejeição: {status_code}")
-                st.json(data)
-
-    with st.form("voice_status_form"):
-        st.subheader("ℹ️ Consultar status do job")
-        job_status_id = st.text_input("Job ID", value="")
-        query_button = st.form_submit_button("🔎 Consultar")
-
-        if query_button:
-            if not job_status_id:
-                st.error("Informe o Job ID para consultar o status.")
-            else:
-                status_code, data = call_voice_agent("GET", f"/voice/status/{job_status_id}")
-                if status_code == 200:
-                    st.success("Status obtido com sucesso")
-                    st.json(data)
+            if query_button:
+                if not job_status_id:
+                    st.error("Informe o Job ID para consultar o status.")
                 else:
-                    st.error(f"Falha na consulta: {status_code}")
-                    st.json(data)
+                    status_code, data = call_voice_agent("GET", f"/voice/status/{job_status_id}")
+                    if status_code == 200:
+                        st.success("Status obtido com sucesso")
+                        st.json(data)
+                    else:
+                        st.error(f"Falha na consulta: {status_code}")
 
 # -------------------------------------------------------------------
 # PÁGINA 2: CONFIGURAR PROGRAMAS (Pastas e Vozes)

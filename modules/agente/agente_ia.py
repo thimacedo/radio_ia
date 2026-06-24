@@ -634,36 +634,13 @@ def mapear_programas_e_pipelines():
     return programas_detectados
 
 def executar_pipelines():
-    print("\n[Agente] Disparando pipelines de gravação física (subprocessos)...")
-    
-    programas = mapear_programas_e_pipelines()
-    
-    if not programas:
-        print("  [AVISO] Nenhum programa mapeado ativamente. Usando execução estática de fallback...")
-        script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
-        boletins_ok, boletins_count = _run_pipeline("Boletins", script_boletins, 0.40)
-        
-        script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
-        njud_ok, njud_count = _run_pipeline("Jornal NJUD", script_njud, 0.60)
-        
-        script_giro = os.path.join(project_root, "modules/giro/giro_pipeline.py").replace("\\", "/")
-        giro_ok, giro_count = _run_pipeline("Giro nas Comarcas", script_giro, 0.80)
-        
-        return {
-            "boletins": {"ok": boletins_ok, "count": boletins_count},
-            "jornal njud": {"ok": njud_ok, "count": njud_count},
-            "giro nas comarcas": {"ok": giro_ok, "count": giro_count}
-        }
-        
-    status = {}
-    num_programas = len(programas)
-    
-    for idx, prog in enumerate(programas):
-        progresso = 0.30 + ((idx + 1) / num_programas) * 0.50
-        ok, count = _run_pipeline(prog["label"], prog["script_path"], progresso)
-        status[prog["label"].lower()] = {"ok": ok, "count": count}
-        
-    return status
+    print("\n[Agente] [CONGELADO] Todas as rotinas de geração/gravação com voz de IA foram congeladas.")
+    print("  Conforme solicitação do usuário, os pipelines contendo vozes neurais de IA não serão disparados.")
+    return {
+        "boletins": {"ok": True, "count": 0},
+        "jornal njud": {"ok": True, "count": 0},
+        "giro nas comarcas": {"ok": True, "count": 0}
+    }
 
 def obter_sufixo_data_njud(refer_val):
     if not refer_val:

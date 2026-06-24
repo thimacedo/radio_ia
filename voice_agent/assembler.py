@@ -98,7 +98,100 @@ def assemble(program: str, clean_wav_path: str, cuts: List[Dict], output_path: s
     out_p.parent.mkdir(parents=True, exist_ok=True)
     result.export(str(out_p), format="mp3", bitrate="320k")
     return str(out_p)
+def assemble_multipart(program: str, cabeca_path: str, cabeca_cuts: List[Dict], off_path: Optional[str], off_cuts: List[Dict], output_path: str) -> str:
+    """Monta arquivo final a partir das frações CABEÇA e OFF."""
+    if AudioSegment is None:
+        raise ImportError("pydub is required to run assembler. Install it with pip install pydub.")
+        
+    config = load_program_config(program)
+    assets = load_assets(program)
 
+    try:
+        cabeca_base = AudioSegment.from_wav(cabeca_path)
+    except Exception:
+        cabeca_base = AudioSegment.silent(duration=0)
+        
+    cabeca_audio = _apply_cuts(cabeca_base, cabeca_cuts)
+    
+    off_audio = AudioSegment.silent(duration=0)
+    if off_path and Path(off_path).exists():
+        try:
+            off_base = AudioSegment.from_wav(off_path)
+            off_audio = _apply_cuts(off_base, off_cuts)
+        except Exception:
+            pass
+
+    has_cabeca = len(cabeca_audio) > 0
+    has_off = len(off_audio) > 0
+
+    # 1. Montar a versão RÁDIO (completa com vinhetas e trilha)
+    radio_result = AudioSegment.silent(duration=0)
+    
+    abertura_path = assets.get("vinheta_abertura")
+    abertura = _load_audio(abertura_path)
+    if abertura:
+        radio_result += abertura
+        
+    if has_cabeca:
+        radio_result += cabeca_audio
+        
+    transicao_path = assets.get("vinheta_transicao")
+    transicao = _load_audio(transicao_path)
+    
+    # Vinheta de transição só entre Cabeça e OFF
+    if has_cabeca and has_off and transicao:
+        radio_result += transicao
+        
+    if has_off:
+        bg_path = assets.get("bg_musica")
+        bg_audio = _load_audio(bg_path)
+        
+        voice_segment = off_audio
+        if bg_audio:
+            volume_bg = -18
+            bg_loop = bg_audio
+            if len(bg_loop) < len(voice_segment):
+                repeats = (len(voice_segment) // len(bg_loop)) + 1
+                bg_loop = bg_loop * repeats
+            bg_loop = bg_loop[: len(voice_segment)] + volume_bg
+            voice_segment = voice_segment.overlay(bg_loop)
+            
+        radio_result += voice_segment
+
+    encerramento_path = assets.get("vinheta_encerramento")
+    encerramento = _load_audio(encerramento_path)
+    if encerramento:
+        radio_result += encerramento
+
+    # 2. Montar a versão MAILING (Cabeça + Transição + OFF, sem vinheta abertura/encerramento, sem trilha BG)
+    mailing_result = AudioSegment.silent(duration=0)
+    if has_cabeca and has_off:
+        mailing_result += cabeca_audio
+        if transicao:
+            mailing_result += transicao
+        mailing_result += off_audio
+    elif has_cabeca:
+        mailing_result += cabeca_audio
+    elif has_off:
+        mailing_result += off_audio
+
+    out_p = Path(output_path)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Exporta a versão Rádio padrão no caminho original
+    radio_result.export(str(out_p), format="mp3", bitrate="320k")
+    
+    # Se o programa for boletins, gera também os arquivos de forma explícita com sufixos
+    if program == "boletins":
+        radio_path = out_p.parent / f"{out_p.stem}_radio.mp3"
+        mailing_path = out_p.parent / f"{out_p.stem}_mailing.mp3"
+        
+        radio_result.export(str(radio_path), format="mp3", bitrate="320k")
+        mailing_result.export(str(mailing_path), format="mp3", bitrate="320k")
+        
+        print(f"[assembler] Gerou versões de Boletim: Rádio -> {radio_path}, Mailing -> {mailing_path}")
+        
+    return str(out_p)
 
 if __name__ == "__main__":
     print("Assembler stub")

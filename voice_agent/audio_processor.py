@@ -25,6 +25,8 @@ def ensure_wav(input_path: str, output_path: str) -> str:
     Retorna caminho do arquivo WAV gerado.
     """
     input_p = Path(input_path)
+    if not input_p.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
     out_p = Path(output_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
