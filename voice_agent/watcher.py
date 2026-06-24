@@ -34,6 +34,12 @@ class _Handler(FileSystemEventHandler):
 
 def default_on_created(path: Path):
     print(f"[watcher] novo arquivo detectado: {path}")
+    try:
+        from .runner import process_file
+        result = process_file(str(path), auto_approve=False)
+        print(f"[watcher] processamento concluído: {result}")
+    except Exception as e:
+        print(f"[watcher] falha ao processar {path}: {e}")
 
 
 def start_watch(input_root: Path = DEFAULT_INPUT_DIR, on_created_cb=default_on_created):

@@ -95,7 +95,3 @@ def assemble(program: str, clean_wav_path: str, cuts: List[Dict], output_path: s
 
 if __name__ == "__main__":
     print("Assembler stub")
-
-
-if __name__ == "__main__":
-    print("Assembler stub")

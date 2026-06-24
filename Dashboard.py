@@ -3,6 +3,7 @@ import yaml
 import pathlib
 import os
 import json
+from urllib.parse import urlparse
 from dotenv import load_dotenv, set_key
 import nest_asyncio
 
@@ -39,6 +40,7 @@ st.markdown("""
 # Caminhos dos arquivos de config
 CONFIG_PATH = pathlib.Path("config.yaml")
 ENV_PATH = pathlib.Path(".env")
+load_dotenv(ENV_PATH)
 
 # -------------------------------------------------------------------
 # FUNÇÕES AUXILIARES DE GESTÃO
@@ -65,6 +67,40 @@ def salvar_prompt_txt(caminho, texto):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(texto, encoding="utf-8")
 
+
+def _http_request(method: str, url: str, payload: dict = None):
+    try:
+        import requests
+        if method.upper() == "GET":
+            resp = requests.get(url, timeout=15)
+        else:
+            resp = requests.post(url, json=payload or {}, timeout=15)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"text": resp.text}
+        return resp.status_code, data
+    except Exception:
+        from urllib.parse import urlparse
+        import http.client
+        import json as _json
+
+        parsed = urlparse(url)
+        conn = http.client.HTTPConnection(parsed.netloc, timeout=15)
+        if method.upper() == "GET":
+            conn.request("GET", parsed.path)
+        else:
+            body = _json.dumps(payload or {}).encode("utf-8")
+            conn.request("POST", parsed.path, body=body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        text = resp.read().decode("utf-8", errors="replace")
+        try:
+            data = _json.loads(text)
+        except Exception:
+            data = {"text": text}
+        return resp.status, data
+
+
 # -------------------------------------------------------------------
 # BARRA LATERAL (NAVEGAÇÃO)
 # -------------------------------------------------------------------
@@ -74,7 +110,7 @@ st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2933/2933245.png", widt
 
 pagina = st.sidebar.radio(
     "Navegação",
-    ["🎛️ Produção", "⚙️ Configurar Programas", "✍️ Estilo Editorial", "🔑 Conexões e API"],
+    ["🎛️ Produção", "🟢 Aprovação de Áudio", "⚙️ Configurar Programas", "✍️ Estilo Editorial", "🔑 Conexões e API"],
     label_visibility="collapsed"
 )
 
@@ -137,6 +173,83 @@ if pagina == "🎛️ Produção":
 
                 st.toast("Processamento em lote finalizado!", icon="✅")
                 st.balloons()
+
+# -------------------------------------------------------------------
+# PÁGINA 2: APROVAÇÃO DE ÁUDIO
+# -------------------------------------------------------------------
+
+elif pagina == "🟢 Aprovação de Áudio":
+    st.title("🟢 Aprovação de Áudio")
+    st.write("Aprovar gravações clean e iniciar a montagem final no serviço Voice Edit Agent.")
+
+    voice_agent_url = os.getenv("VOICE_AGENT_URL", "http://127.0.0.1:8002").rstrip("/")
+    st.info(f"Voice Agent ativo em: {voice_agent_url}")
+
+    def call_voice_agent(method: str, endpoint: str, payload: dict = None):
+        url = f"{voice_agent_url}{endpoint}"
+        return _http_request(method, url, payload)
+
+    with st.form("voice_approval_form"):
+        st.subheader("✅ Aprovar e montar")
+        program = st.text_input("Programa", value="", help="ID do programa usado na configuração de áudio e montagem.")
+        arquivo_clean = st.text_input("Arquivo clean aprovado", value="", help="Caminho completo do arquivo WAV processado.")
+        cortes_json = st.text_area("Cortes aprovados (JSON)", value="[]", height=120,
+                                  help="Informe uma lista JSON de cortes: [{\"start_ms\": 1000, \"end_ms\": 3000}]")
+        approve_button = st.form_submit_button("✅ Aprovar e montar")
+
+        if approve_button:
+            try:
+                cortes = json.loads(cortes_json or "[]")
+                status_code, data = call_voice_agent("POST", "/voice/approve", {
+                    "program": program,
+                    "arquivo_clean": arquivo_clean,
+                    "cortes": cortes,
+                })
+                if status_code == 200:
+                    st.success(f"Montagem iniciada. Job ID: {data.get('job_id')}")
+                    st.json(data)
+                else:
+                    st.error(f"Falha ao chamar Voice Agent: {status_code}")
+                    st.json(data)
+            except Exception as e:
+                st.error(f"Erro ao processar aprovação: {e}")
+
+    with st.form("voice_rejection_form"):
+        st.subheader("❌ Rejeitar gravação")
+        rejected_program = st.text_input("Programa (rejeição)", value="")
+        rejected_audio = st.text_input("Arquivo clean", value="")
+        motivo = st.text_area("Motivo da rejeição", value="", height=120)
+        reject_button = st.form_submit_button("❌ Rejeitar")
+
+        if reject_button:
+            status_code, data = call_voice_agent("POST", "/voice/reject", {
+                "program": rejected_program,
+                "arquivo_clean": rejected_audio,
+                "motivo": motivo,
+            })
+            if status_code == 200:
+                st.success(f"Rejeição registrada. Job ID: {data.get('job_id')}")
+                st.json(data)
+            else:
+                st.error(f"Falha ao chamar Voice Agent para rejeição: {status_code}")
+                st.json(data)
+
+    with st.form("voice_status_form"):
+        st.subheader("ℹ️ Consultar status do job")
+        job_status_id = st.text_input("Job ID", value="")
+        query_button = st.form_submit_button("🔎 Consultar")
+
+        if query_button:
+            if not job_status_id:
+                st.error("Informe o Job ID para consultar o status.")
+            else:
+                status_code, data = call_voice_agent("GET", f"/voice/status/{job_status_id}")
+                if status_code == 200:
+                    st.success("Status obtido com sucesso")
+                    st.json(data)
+                else:
+                    st.error(f"Falha na consulta: {status_code}")
+                    st.json(data)
 
 # -------------------------------------------------------------------
 # PÁGINA 2: CONFIGURAR PROGRAMAS (Pastas e Vozes)
@@ -300,6 +413,10 @@ elif pagina == "🔑 Conexões e API":
         smtp_server = st.text_input("Servidor SMTP", value=os.getenv("SMTP_SERVER", ""))
         smtp_pass = st.text_input("Senha SMTP", type="password", value=os.getenv("SMTP_PASS", ""))
 
+    with st.expander("🟢 Voice Edit Agent"):
+        st.markdown("Configure o serviço de aprovação de áudio humana e montagem final.")
+        voice_agent_url = st.text_input("Voice Agent URL", value=os.getenv("VOICE_AGENT_URL", "http://127.0.0.1:8002"))
+
     if st.button("🔒 Salvar Credenciais no .env"):
         # Salva apenas se preenchido
         if groq_key: set_key(ENV_PATH, "GROQ_API_KEY", groq_key)
@@ -307,7 +424,9 @@ elif pagina == "🔑 Conexões e API":
         if gemini_key: set_key(ENV_PATH, "GEMINI_API_KEY", gemini_key)
         if ftp_host: set_key(ENV_PATH, "FTP_HOST", ftp_host)
         if ftp_user: set_key(ENV_PATH, "FTP_USER", ftp_user)
-        if ftp_pass: set_key(ENV_PATH, "FTP_PASS", ftp_pass)
+        if smtp_pass: set_key(ENV_PATH, "SMTP_PASS", smtp_pass)
+        if webhook_url: set_key(ENV_PATH, "WEBHOOK_URL", webhook_url)
+        if voice_agent_url: set_key(ENV_PATH, "VOICE_AGENT_URL", voice_agent_url)
         
         st.success("Credenciais salvas com segurança no arquivo .env!")
         st.info("Reinicie o painel para garantir que as mudanças façam efeito.")

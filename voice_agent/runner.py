@@ -9,6 +9,7 @@ Este runner é um orquestrador síncrono simples para POC.
 
 from pathlib import Path
 import json
+import uuid
 import datetime
 from typing import List, Dict
 
@@ -25,12 +26,13 @@ def infer_program_from_path(p: Path) -> str:
     return "default"
 
 
-def process_file(input_path: str, auto_approve: bool = True) -> Dict:
+def process_file(input_path: str, auto_approve: bool = True, job_id: str = None) -> Dict:
     p = Path(input_path)
     if not p.exists():
         raise FileNotFoundError(input_path)
 
     program = infer_program_from_path(p)
+    job_id = job_id or str(uuid.uuid4())
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     processed_dir = Path("processed") / program
@@ -63,7 +65,15 @@ def process_file(input_path: str, auto_approve: bool = True) -> Dict:
 
     if not auto_approve and issues:
         print("[runner] aguarda aprovação manual — saindo")
-        return {"status": "awaiting_approval", "report": report_path}
+        return {
+            "status": "awaiting_approval",
+            "job_id": job_id,
+            "program": program,
+            "input_path": str(p),
+            "clean_path": clean_path,
+            "report": report_path,
+            "issues": issues,
+        }
 
     # Auto-approve: realiza cortes sugeridos (por enquanto, nenhum corte automático)
     cuts: List[Dict] = []
@@ -78,7 +88,15 @@ def process_file(input_path: str, auto_approve: bool = True) -> Dict:
 
     notifier.send_ntfy(topic, f"Programa finalizado: {final_path}")
 
-    return {"status": "completed", "final_path": final_path, "report": report_path}
+    return {
+        "status": "completed",
+        "job_id": job_id,
+        "program": program,
+        "input_path": str(p),
+        "clean_path": clean_path,
+        "final_path": final_path,
+        "report": report_path,
+    }
 
 
 def approve_and_mount(program: str, clean_path: str, cuts: List[Dict], job_id: str = None) -> str:
