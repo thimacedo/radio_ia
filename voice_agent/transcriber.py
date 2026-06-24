@@ -31,7 +31,6 @@ def transcribe(file_path: str, model_name: str = "medium", language: Optional[st
         ]
 
     model = whisper.load_model(model_name)
-    # A API whisper.model.transcribe aceita language param
     result = model.transcribe(str(file_p), language=language)
     segments = []
     for s in result.get("segments", []):

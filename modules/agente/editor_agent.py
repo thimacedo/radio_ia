@@ -124,6 +124,29 @@ def job_status_callback(job_id: str, cb: StatusCallback):
     return {"ok": True}
 
 
+@app.post("/voice/approve")
+def voice_approve(payload: Dict[str, Any]):
+    # Espera: programa, arquivo_clean, cortes
+    job_id = payload.get("job_id") or str(uuid.uuid4())
+    jobs[job_id] = {"approved": True, "payload": payload}
+    return {"status": "montagem_iniciada", "job_id": job_id}
+
+
+@app.get("/voice/status/{job_id}")
+def voice_status(job_id: str):
+    info = jobs.get(job_id)
+    if not info:
+        return {"status": "unknown"}
+    return {"status": "ok", "job": info}
+
+
+@app.post("/voice/reject")
+def voice_reject(payload: Dict[str, Any]):
+    job_id = payload.get("job_id") or str(uuid.uuid4())
+    jobs[job_id] = {"rejected": True, "payload": payload}
+    return {"status": "moved_to_rejected", "job_id": job_id}
+
+
 if __name__ == "__main__":
     import uvicorn
 
