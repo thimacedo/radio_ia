@@ -11,6 +11,11 @@ from .llm_factory import LLMFactory
 from .models import ProgramRecipe
 from .best_practices import retry_async, aplicar_pronuncia
 
+try:
+    from voice_agent.hooks import call_editor_edit_and_approve
+except Exception:
+    call_editor_edit_and_approve = None
+
 class PipelineEngine:
     """
     Motor central unificado. Executa o ciclo de vida completo de um programa:
@@ -40,7 +45,15 @@ class PipelineEngine:
         # 1. Adaptação (Hook específico do programa)
         if self.recipe.pre_process_hook:
             content = self.recipe.pre_process_hook(content)
-            
+        elif call_editor_edit_and_approve is not None:
+            try:
+                print(f"    [{self.recipe.name}] Chamando editor de texto externo...")
+                response = call_editor_edit_and_approve(content, job_id=None)
+                content = response.get("approved_text", content)
+            except Exception as e:
+                print(f"    [{self.recipe.name}] Falha ao chamar editor externo: {e}")
+                content = raw_content
+        
         # 2. Processamento IA
         if self.recipe.system_prompt:
             print(f"    [{self.recipe.name}] Processando roteiro via IA...")

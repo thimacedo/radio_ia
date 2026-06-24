@@ -1,0 +1,31 @@
+voice_edit:
+  deteccao:
+    repeticao_palavras: true
+    repeticao_frases: true
+    threshold_repeticao_chars: 10
+    hesitacoes: true
+    hesitacoes_lista: ["ééé", "ahn", "hmm", "né né", "assim assim"]
+    silencio_longo_segundos: 2.5
+    silencio_critico_segundos: 5.0
+  audio:
+    loudness_target_lufs: -16
+    noise_reduction: true
+    noise_reduction_strength: 0.6
+    compressao: true
+    compressao_threshold_db: -20
+  notificacao:
+    ntfy_topico: "radio_tjrn_default"
+    notificar_deteccao: true
+    notificar_aprovacao: true
+    notificar_montagem: true
+assets:
+  vinheta_abertura: null
+  vinheta_encerramento: null
+  bg_musica: null
+montagem:
+  estrutura:
+    - tipo: voz
+      bg: null
+      bg_volume: -18
+      fade_in: 0.5
+      fade_out: 0.5

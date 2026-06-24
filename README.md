@@ -46,6 +46,45 @@ O painel permite disparar os pipelines de cada módulo (Giro, Boletins, NJUD, Re
 
 Certifique-se de que todas as chaves estão configuradas na raiz do projeto. O sistema possui fallback automático: se o Groq falhar, ele tentará o OpenRouter, e assim por diante.
 
+## 🟢 Voice Edit Agent
+
+Este projeto agora inclui um serviço de aprovação de áudio humano para:
+
+- detectar automaticamente Issues na locução limpa (`clean.wav`)
+- gerar relatório de revisão
+- aguardar aprovação manual antes da montagem final
+- montar o arquivo MP3 final com assets do programa
+
+### Endpoints disponíveis
+
+- `POST /voice/process`
+  - payload: `{ "program": "<program>", "input_path": "<arquivo_entrada>", "auto_approve": false }`
+  - retorna `awaiting_approval` se houver issues
+
+- `POST /voice/approve`
+  - payload: `{ "program": "<program>", "arquivo_clean": "<arquivo_wav>", "cortes": [ ... ] }`
+  - inicia a montagem final em background
+
+- `GET /voice/status/{job_id}`
+  - consulta o status do job de aprovação/montagem
+
+- `POST /voice/reject`
+  - payload: `{ "program": "<program>", "arquivo_clean": "<arquivo_wav>", "motivo": "<descrição>" }`
+
+### URL do serviço
+
+No `.env`, configure:
+
+```env
+VOICE_AGENT_URL=http://127.0.0.1:8002
+```
+
+### Execução
+
+```bash
+uvicorn voice_agent.api:app --host 0.0.0.0 --port 8002
+```
+
 ---
 
 *Desenvolvido para o Tribunal de Justiça do Rio Grande do Norte — 2026*
