@@ -7,13 +7,18 @@ from pydub import AudioSegment
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Configuração de Caminhos
-# ---------------------------------------------------------------------------
-BASE_DIR    = Path(r"E:\NJUD")
-GIRO_DIR    = BASE_DIR / "PROGRAMA GIRO NAS COMARCAS"
+import sys
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+from core.best_practices import carregar_env_var
+
+BASE_DIR    = project_root
+GIRO_DIR    = BASE_DIR / "modules" / "giro" / "workspace"
 INPUT_DIR   = GIRO_DIR / "tts_txt_revisado"
 OUTPUT_DIR  = GIRO_DIR / "tts_mp3_premium"
-VHT_DIR     = Path(r"H:\Meu Drive\RADIO TJRN CONTEÚDO\PROGRAMAS\PROGRAMA GIRO NAS COMARCAS (10min)\_VHT")
+drive_root  = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
+VHT_DIR     = Path(carregar_env_var("DRIVE_GIRO_VHT_DIR", str(Path(drive_root) / "PROGRAMAS/PROGRAMA GIRO NAS COMARCAS (10min)/_VHT")))
 
 # Criar pasta de saída se não existir
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -148,7 +153,7 @@ async def main():
         return
 
     print(f"Arquivos para processar: {len(files)}")
-    print(f"Voz: {VOICE}\n")
+    print(f"Vozes: {VOZ_SPEAKER_1} / {VOZ_SPEAKER_2}\n")
 
     for f in files:
         await process_file(f)

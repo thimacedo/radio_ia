@@ -25,9 +25,11 @@ class PipelineEngine:
     4. Edição (Montagem Pydub com Receita)
     5. Distribuição (Sincronização Drive)
     """
-    def __init__(self, recipe: ProgramRecipe):
+    def __init__(self, recipe: ProgramRecipe, dry_run: bool = False, workers: int = 5):
         self.recipe = recipe
         self.llm = LLMFactory()
+        self.dry_run = dry_run
+        self.semaphore = asyncio.Semaphore(workers)
         
         # Preparar diretórios locais
         self.txt_dir = self.recipe.local_work_dir / "1_txt_bruto"
@@ -36,6 +38,47 @@ class PipelineEngine:
         
         for d in [self.txt_dir, self.rev_dir, self.aud_dir]:
             d.mkdir(parents=True, exist_ok=True)
+            
+        self.validar_assets()
+
+    def validar_assets(self):
+        """Valida se todas as vinhetas críticas especificadas no perfil existem."""
+        if not self.recipe.assembly or not self.recipe.assembly.profile_path:
+            return
+            
+        profile_path = pathlib.Path(self.recipe.assembly.profile_path)
+        if not profile_path.exists():
+            raise FileNotFoundError(f"Perfil de montagem não encontrado: {profile_path}")
+            
+        try:
+            with open(profile_path, 'r', encoding='utf-8') as f:
+                profile = json.load(f)
+        except Exception as e:
+            raise ValueError(f"Erro ao ler JSON de perfil {profile_path}: {e}")
+            
+        assets = profile.get("assets", {})
+        trilhas = profile.get("trilhas", {})
+        
+        # O project_root para resolver caminhos relativos
+        project_root = pathlib.Path(__file__).parent.parent
+        
+        # Validar vinhetas
+        for key, rel_path in assets.items():
+            if rel_path:
+                full_path = project_root / rel_path
+                if not full_path.exists():
+                    raise FileNotFoundError(
+                        f"Vinheta crítica '{key}' não encontrada em: {full_path.resolve()}"
+                    )
+                    
+        # Validar trilhas
+        for key, rel_path in trilhas.items():
+            if rel_path:
+                full_path = project_root / rel_path
+                if not full_path.exists():
+                    raise FileNotFoundError(
+                        f"Trilha crítica '{key}' não encontrada em: {full_path.resolve()}"
+                    )
 
     # ---------------------------------------------------------
     # 1. ADAPTAÇÃO & 2. PROCESSAMENTO (LLM)
@@ -67,21 +110,62 @@ class PipelineEngine:
     # ---------------------------------------------------------
     @retry_async(retries=3, backoff=1.0)
     async def synthesize_chunk(self, text: str, voice: str) -> bytes:
-        # Aplicar pronúncia fonética nas siglas antes de enviar ao Edge TTS
-        text_fonetizado = aplicar_pronuncia(text)
-        communicate = edge_tts.Communicate(text_fonetizado, voice)
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio": 
-                audio_data += chunk["data"]
-        if not audio_data:
-            raise Exception("Nenhum dado de áudio retornado pelo Edge TTS.")
-        return audio_data
+        if self.dry_run:
+            # Em modo dry-run, retorna um silêncio mockado (100ms) em formato MP3
+            silence = AudioSegment.silent(duration=100)
+            buf = io.BytesIO()
+            silence.export(buf, format="mp3")
+            return buf.getvalue()
+
+        async with self.semaphore:
+            # Aplicar pronúncia fonética nas siglas antes de enviar ao Edge TTS
+            text_fonetizado = aplicar_pronuncia(text)
+            communicate = edge_tts.Communicate(text_fonetizado, voice)
+            audio_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio": 
+                    audio_data += chunk["data"]
+            if not audio_data:
+                raise Exception("Nenhum dado de áudio retornado pelo Edge TTS.")
+            return audio_data
 
     # ---------------------------------------------------------
     # 4. EDIÇÃO (Montagem Pydub - Audio as Text)
     # ---------------------------------------------------------
     async def assemble_audio(self, parsed_blocks: list, global_voice_idx: int = 0) -> AudioSegment:
+        # 1. Identificar e pré-sintetizar todos os blocos LOC em paralelo para acelerar o processo
+        loc_tasks = []
+        loc_indices = []
+        
+        # Mapeamento de vozes e tipo
+        voices = self.recipe.voice_strategy.voices
+        is_intra = self.recipe.voice_strategy.type == 'intra_file'
+        current_voice = voices[global_voice_idx % len(voices)] if not is_intra else None
+        
+        for idx, (kind, content) in enumerate(parsed_blocks):
+            if kind == "LOC":
+                if is_intra:
+                    speaker_id, texto = content
+                    v_idx = 0 if speaker_id == "speaker1" else 1
+                    voz = voices[v_idx % len(voices)]
+                else:
+                    texto = content
+                    voz = current_voice
+                
+                # Armazena corrotina de síntese
+                loc_tasks.append(self.synthesize_chunk(texto, voz))
+                loc_indices.append(idx)
+                
+        # Executar em paralelo
+        if loc_tasks:
+            print(f"    [{self.recipe.name}] Pré-sintetizando {len(loc_tasks)} trechos de fala em paralelo...")
+            audio_results = await asyncio.gather(*loc_tasks)
+            # Guardar resultados mapeados
+            loc_audio_map = {loc_indices[i]: audio_results[i] for i in range(len(loc_indices))}
+        else:
+            loc_audio_map = {}
+            
+        # 2. Fazer a montagem sequencial usando os áudios pré-sintetizados
         combined = AudioSegment.empty()
         
         # Carregar Perfil (JSON)
@@ -99,26 +183,17 @@ class PipelineEngine:
             "tempo_fade_out_ms": 3000,
             "reduzir_bg_durante_fala": True
         })
-
-        # Estratégia de Vozes
-        voices = self.recipe.voice_strategy.voices
-        is_intra = self.recipe.voice_strategy.type == 'intra_file'
-        current_voice = voices[global_voice_idx % len(voices)] if not is_intra else None
         
-        # Controle de Trilha de Fundo (BG)
         bg_audio = None
         bg_active = False
-        speech_timeline = AudioSegment.empty() # Para calcular o tamanho exato da fala sob a trilha
-
-        # Loop de Construção (Audio-as-Text)
-        for kind, content in parsed_blocks:
+        speech_timeline = AudioSegment.empty()
+        
+        for idx, (kind, content) in enumerate(parsed_blocks):
             if kind == "ASSET":
                 asset_key = content.strip()
                 asset_path = assets_map.get(asset_key)
                 
-                # Se há uma trilha tocando, precisamos mixar o speech_timeline acumulado antes de colar o asset (para o asset não ficar sobre a trilha, conforme regra do usuário)
                 if bg_active and len(speech_timeline) > 0:
-                    # Cortar e mixar trilha
                     bg_snippet = bg_audio[:len(speech_timeline)]
                     if config["reduzir_bg_durante_fala"]:
                         bg_snippet = bg_snippet + config["volume_bg_ducking"]
@@ -129,19 +204,15 @@ class PipelineEngine:
                     mixed_speech = speech_timeline.overlay(bg_snippet)
                     combined += mixed_speech
                     
-                    # Resetar state da trilha para a próxima fala
+                    consumed = len(speech_timeline)
                     speech_timeline = AudioSegment.empty()
-                    bg_audio = bg_audio[len(speech_timeline):] # avança a agulha da trilha
+                    bg_audio = bg_audio[consumed:]
                 
-                # Inserir o Asset puro (sem BG por cima)
                 if asset_path and os.path.exists(asset_path):
                     asset_segment = AudioSegment.from_mp3(asset_path)
-                    
-                    # Se não havia BG ativo, o speech acumulado vai seco mesmo
                     if not bg_active and len(speech_timeline) > 0:
                         combined += speech_timeline
                         speech_timeline = AudioSegment.empty()
-                        
                     combined += asset_segment
                 else:
                     print(f"      [!] Aviso: Asset '{asset_key}' não encontrado no caminho: {asset_path}")
@@ -152,7 +223,6 @@ class PipelineEngine:
                     bg_path = trilhas_map.get("BG_PADRAO")
                     if bg_path and os.path.exists(bg_path):
                         bg_audio = AudioSegment.from_mp3(bg_path)
-                        # Loop mágico para garantir que o BG seja gigantesco
                         bg_audio = bg_audio * 10 
                         bg_active = True
                 elif cmd == "DESLIGAR":
@@ -160,22 +230,14 @@ class PipelineEngine:
                         bg_snippet = bg_audio[:len(speech_timeline)]
                         bg_snippet = bg_snippet + config["volume_bg_ducking"]
                         bg_snippet = bg_snippet.fade_out(config["tempo_fade_out_ms"])
-                        
                         mixed_speech = speech_timeline.overlay(bg_snippet)
                         combined += mixed_speech
                         speech_timeline = AudioSegment.empty()
                     bg_active = False
             
             elif kind == "LOC":
-                if is_intra:
-                    speaker_id, texto = content
-                    idx = 0 if speaker_id == "speaker1" else 1
-                    voz = voices[idx % len(voices)]
-                else:
-                    texto = content
-                    voz = current_voice
-                
-                audio_bytes = await self.synthesize_chunk(texto, voz)
+                # Pega áudio pré-sintetizado do mapa
+                audio_bytes = loc_audio_map[idx]
                 loc_segment = AudioSegment.from_mp3(io.BytesIO(audio_bytes))
                 
                 # Adiciona pequeno respiro
@@ -186,8 +248,7 @@ class PipelineEngine:
                     speech_timeline += loc_segment
                 else:
                     combined += loc_segment
-
-        # Limpeza final se sobrou fala solta
+                    
         if len(speech_timeline) > 0:
             if bg_active:
                 bg_snippet = bg_audio[:len(speech_timeline)]
@@ -197,7 +258,7 @@ class PipelineEngine:
                 combined += mixed_speech
             else:
                 combined += speech_timeline
-
+                
         return combined
 
     # ---------------------------------------------------------
@@ -212,11 +273,8 @@ class PipelineEngine:
         shutil.copy2(local_mp3, dest_path)
         print(f"    [{self.recipe.name}] Distribuído para: {dest_path}")
 
-    # ---------------------------------------------------------
-    # ORQUESTRADOR
-    # ---------------------------------------------------------
     async def run_file(self, file_path: pathlib.Path, file_idx: int = 0, subfolder: str = ""):
-        print(f"\n[{self.recipe.name}] Iniciando: {file_path.name}")
+        from core.db import registrar_inicio, registrar_fim
         
         clean_name = file_path.stem.replace("_bruto", "").replace("_revisado", "").strip()
         mp3_name = f"{clean_name}.mp3"
@@ -227,29 +285,42 @@ class PipelineEngine:
 
         if dest_path.exists():
             print(f"  [SKIP] {file_path.name} já existe no Drive.")
+            exec_id = registrar_inicio(self.recipe.name)
+            registrar_fim(exec_id, "skip")
             return
 
-        # 1 e 2
-        raw_text = file_path.read_text(encoding="utf-8", errors="replace")
-        rev_text = self.process_text(raw_text)
+        print(f"\n[{self.recipe.name}] Iniciando: {file_path.name}")
+        exec_id = registrar_inicio(self.recipe.name)
         
-        rev_path = self.rev_dir / file_path.name
-        rev_path.write_text(rev_text, encoding="utf-8")
-        
-        # 3 e 4
-        print(f"    [{self.recipe.name}] Gerando áudio e mixando...")
-        if self.recipe.parse_hook:
-            parsed_blocks = self.recipe.parse_hook(rev_text)
-        else:
-            parsed_blocks = [("LOC", rev_text)] # Fallback simples
+        try:
+            # 1 e 2
+            raw_text = file_path.read_text(encoding="utf-8", errors="replace")
+            rev_text = self.process_text(raw_text)
+            
+            rev_path = self.rev_dir / file_path.name
+            rev_path.write_text(rev_text, encoding="utf-8")
+            
+            # 3 e 4
+            print(f"    [{self.recipe.name}] Gerando áudio e mixando...")
+            if self.recipe.parse_hook:
+                parsed_blocks = self.recipe.parse_hook(rev_text)
+            else:
+                parsed_blocks = [("LOC", rev_text)] # Fallback simples
 
-        combined_audio = await self.assemble_audio(parsed_blocks, global_voice_idx=file_idx)
-        
-        out_path = self.aud_dir / mp3_name
-        combined_audio.export(str(out_path), format="mp3", bitrate="192k")
-        
-        # 5. Distribuir
-        self.distribute(out_path, subfolder)
+            combined_audio = await self.assemble_audio(parsed_blocks, global_voice_idx=file_idx)
+            
+            out_path = self.aud_dir / mp3_name
+            combined_audio.export(str(out_path), format="mp3", bitrate="192k")
+            
+            # 5. Distribuir
+            self.distribute(out_path, subfolder)
+            
+            duracao = len(combined_audio) / 1000.0
+            registrar_fim(exec_id, "ok", duracao_audio_s=duracao)
+        except Exception as e:
+            registrar_fim(exec_id, "erro", erro_msg=str(e))
+            print(f"    [ERRO] Falha no pipeline para {file_path.name}: {e}")
+            raise
 
     async def run_all(self):
         files = sorted([f for f in self.txt_dir.glob("*.txt") if not f.name.endswith(".bak")])

@@ -41,8 +41,12 @@ except ImportError as exc:
 # ---------------------------------------------------------------------------
 # Configurações — ajuste se necessário
 # ---------------------------------------------------------------------------
+import sys
 project_root = Path(__file__).parent.parent
-CREDENTIALS_PATH = project_root / "archive" / "gen-lang-client-0980378916-8cc8eb1488d1.json"
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+from core.best_practices import carregar_env_var
+CREDENTIALS_PATH = project_root / carregar_env_var("CREDENTIALS_PATH", "config/credentials/service_account.json")
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",

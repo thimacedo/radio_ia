@@ -126,6 +126,12 @@ def voice_reject(payload: RejectPayload):
     return {"job_id": job_id, "status": "rejected"}
 
 
+@app.get("/voice/jobs")
+def voice_list_jobs():
+    with jobs_lock:
+        # Retorna uma cópia para evitar problemas de concorrência na serialização
+        return dict(jobs)
+
 @app.get("/health")
 def health():
     return {"status": "ok", "jobs": len(jobs)}

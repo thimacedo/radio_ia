@@ -421,7 +421,7 @@ async def main():
             sys.exit(1)
         
     # 2. Carregar a planilha com openpyxl para poder fazer atualizações
-    wb = openpyxl.load_workbook(local_xlsx)
+    wb = openpyxl.load_workbook(local_xlsx, data_only=True)
     
     # 3. Carregar vinhetas e BG do boletim
     vht_abertura_path = os.path.join(LOCAL_BOLETINS_DIR, "VHT/vht_abertura.mp3").replace("\\", "/")

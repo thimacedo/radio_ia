@@ -4,3 +4,10 @@
 __pycache__/
 *.pyc
 *.wav
+
+# Runtime and configuration files
+.env
+.env.local
+.agente.lock
+config/credentials/*.json
+/data/doc_cache.db

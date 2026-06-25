@@ -6,6 +6,7 @@ import asyncio
 import urllib.request
 import openpyxl
 from pydub import AudioSegment
+import shutil
 
 # Certificar caminhos corretos no python path
 current_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
@@ -16,11 +17,14 @@ sys.path.append(current_dir)
 from core.llm_factory import LLMFactory
 from processar_roteiro_completo import limpar_texto_locutor
 
+from core.best_practices import carregar_env_var
+
 # Configurações
-PATH_PLANILHA = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026.xlsx"
+drive_root = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
+PATH_PLANILHA = carregar_env_var("DRIVE_NJUD_PLANILHA", os.path.join(drive_root, "NOT JUDICIARIO (5 MIN)/NJUD 2026.xlsx")).replace("\\", "/")
 LOCAL_WORKSPACE = os.path.join(current_dir, "workspace").replace("\\", "/")
 GLOBAL_VHT_DIR = os.path.join(project_root, "assets/vht").replace("\\", "/")
-DRIVE_BASE_DIR = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\NOT JUDICIARIO (5 MIN)\NJUD 2026"
+DRIVE_BASE_DIR = carregar_env_var("DRIVE_NJUD_DIR", os.path.join(drive_root, "NOT JUDICIARIO (5 MIN)/NJUD 2026")).replace("\\", "/")
 
 def baixar_roteiro_via_api(doc_id):
     try:
@@ -89,18 +93,7 @@ def obter_id_documento(url):
     return None
 
 def extrair_linhas_fala(texto_revisado):
-    falas = []
-    for linha in texto_revisado.splitlines():
-        linha = linha.strip()
-        if not linha:
-            continue
-        match = re.match(r'^(Speaker\s*[12]):\s*(?:\[.*?\])?\s*(.*)$', linha, re.IGNORECASE)
-        if match:
-            speaker = match.group(1).lower().replace(" ", "")
-            texto = match.group(2).strip()
-            if texto:
-                falas.append((speaker, texto))
-    return falas
+    return lines_to_falas(texto_revisado.splitlines())
 
 def lines_to_falas(linhas):
     falas = []
@@ -466,18 +459,10 @@ async def main():
         if isinstance(refer_val, datetime.datetime):
             return MONTH_MAP.get(refer_val.month, "6 - JUNHO")
         refer_str = str(refer_val).strip()
-        if "JUNHO" in refer_str.upper() or refer_str.startswith("6 "):
-            return "6 - JUNHO"
-        elif "MAIO" in refer_str.upper() or refer_str.startswith("5 "):
-            return "5 - MAIO"
-        elif "ABRIL" in refer_str.upper() or refer_str.startswith("4 "):
-            return "4 - ABRIL"
-        elif "MARÇO" in refer_str.upper() or refer_str.startswith("3 "):
-            return "3 - MARÇO"
-        elif "FEVEREIRO" in refer_str.upper() or refer_str.startswith("2 "):
-            return "2 - FEVEREIRO"
-        elif "JANEIRO" in refer_str.upper() or refer_str.startswith("1 "):
-            return "1 - JANEIRO"
+        for m_num, m_full in MONTH_MAP.items():
+            m_name = m_full.split(" - ")[1]
+            if m_name in refer_str.upper() or refer_str.startswith(f"{m_num} "):
+                return m_full
         
         m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
         if m:
@@ -730,14 +715,12 @@ async def main():
             
             # Copiar áudio tradicional
             if os.path.exists(local_audio_file):
-                import shutil
                 shutil.copy2(local_audio_file, drive_audio_path)
                 print(f"  [ÁUDIO] Copiado para o Drive (Tradicional): {drive_audio_path}")
                 total_sincronizados += 1
                 
             # Copiar texto tradicional
             if os.path.exists(local_txt_file):
-                import shutil
                 shutil.copy2(local_txt_file, drive_txt_path)
                 print(f"  [ROTEIRO] Copiado para o Drive (Tradicional): {drive_txt_path}")
                 total_sincronizados += 1
@@ -757,7 +740,8 @@ async def main():
                 short_name = MONTH_MAP_SHORT.get(mes_num, "JUN")
                 folder_name = f"{mes_num:02d} - {short_name} - 26"
                 
-                drive_5s_base = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\00_PRODUCAO_2026\02_JORNAIS_NJUD"
+                drive_producao = carregar_env_var("DRIVE_PRODUCAO", "H:/Meu Drive/RADIO TJRN CONTEÚDO/00_PRODUCAO_2026")
+                drive_5s_base = os.path.join(drive_producao, "02_JORNAIS_NJUD").replace("\\", "/")
                 drive_5s_mailing_dir = os.path.join(drive_5s_base, "02_AUDIOS_MAILING", folder_name).replace("\\", "/")
                 drive_5s_roteiros_dir = os.path.join(drive_5s_base, "01_ROTEIROS", folder_name).replace("\\", "/")
                 

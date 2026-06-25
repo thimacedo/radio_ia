@@ -30,11 +30,20 @@ import sys
 # ---------------------------------------------------------------------------
 # Configurações de caminho
 # ---------------------------------------------------------------------------
-ROOT_DRIVE  = r"H:/Meu Drive/RADIO TJRN CONTEÚDO/PROGRAMAS/PROGRAMA GIRO NAS COMARCAS (10min)"
-WORKSPACE   = r"e:/NJUD/PROGRAMA GIRO NAS COMARCAS"
-REPORTS_DIR = os.path.join(WORKSPACE, "relatorios")
-TTS_DIR     = os.path.join(WORKSPACE, "tts_txt")
-CREDENTIALS = r"e:/NJUD/gen-lang-client-0980378916-8cc8eb1488d1.json"
+import sys
+import pathlib
+current_file = pathlib.Path(__file__).resolve()
+project_root = current_file.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+from core.best_practices import carregar_env_var
+
+drive_root = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
+ROOT_DRIVE  = os.path.join(drive_root, "PROGRAMAS/PROGRAMA GIRO NAS COMARCAS (10min)").replace("\\", "/")
+WORKSPACE   = os.path.join(project_root, "modules/giro/workspace").replace("\\", "/")
+REPORTS_DIR = os.path.join(WORKSPACE, "relatorios").replace("\\", "/")
+TTS_DIR     = os.path.join(WORKSPACE, "tts_txt").replace("\\", "/")
+CREDENTIALS = os.path.join(project_root, carregar_env_var("CREDENTIALS_PATH", "config/credentials/service_account.json")).replace("\\", "/")
 
 os.makedirs(REPORTS_DIR, exist_ok=True)
 os.makedirs(TTS_DIR, exist_ok=True)

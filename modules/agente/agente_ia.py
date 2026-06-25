@@ -7,8 +7,10 @@ import argparse
 import subprocess
 import shutil
 import gc
-from datetime import datetime
+from datetime import datetime, date
 import openpyxl
+import pathlib
+import atexit
 
 # Corrigir encodificação de console no Windows para evitar quedas por caracteres unicode (ex: ✔)
 try:
@@ -33,27 +35,25 @@ except ImportError:
 
 try:
     from core.llm_factory import LLMFactory
+    from core.constants import MONTH_MAP_FULL
     llm_available = True
 except ImportError:
     llm_available = False
 
 # Configurações
-SPREADSHEET_ID_BOLETINS = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
-SPREADSHEET_ID_NJUD = "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec"
-CREDENTIALS_PATH = os.path.join(project_root, "archive", "gen-lang-client-0980378916-8cc8eb1488d1.json").replace("\\", "/")
-LOG_PATH = "H:/Meu Drive/RADIO TJRN CONTEÚDO/00_PRODUCAO_2026/LOG_ACOES_5S.md"
-NJUD_DRIVE_BASE = r"H:\Meu Drive\RADIO TJRN CONTEÚDO\00_PRODUCAO_2026\02_JORNAIS_NJUD"
+SPREADSHEET_ID_BOLETINS = carregar_env_var("SPREADSHEET_ID_BOLETINS", "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU")
+SPREADSHEET_ID_NJUD = carregar_env_var("SPREADSHEET_ID_NJUD", "1HegL-SudxPLI4Y6wsj1nnJocXHOvi-6inGqQld1lYec")
+CREDENTIALS_PATH = os.path.join(project_root, carregar_env_var("CREDENTIALS_PATH", "config/credentials/service_account.json")).replace("\\", "/")
+drive_producao = carregar_env_var("DRIVE_PRODUCAO", "H:/Meu Drive/RADIO TJRN CONTEÚDO/00_PRODUCAO_2026")
+LOG_PATH = f"{drive_producao}/LOG_ACOES_5S.md"
+NJUD_DRIVE_BASE = f"{drive_producao}/02_JORNAIS_NJUD"
 
 # Mapeamentos do Calendário de 2026
 WEEKDAYS_PT = {
     0: "SEG", 1: "TER", 2: "QUA", 3: "QUI", 4: "SEX", 5: "SAB", 6: "DOM"
 }
 
-MONTH_MAP = {
-    1: "1 - JANEIRO", 2: "2 - FEVEREIRO", 3: "3 - MARÇO", 4: "4 - ABRIL",
-    5: "5 - MAIO", 6: "6 - JUNHO", 7: "7 - JULHO", 8: "8 - AGOSTO",
-    9: "9 - SETEMBRO", 10: "10 - OUTUBRO", 11: "11 - NOVEMBRO", 12: "12 - DEZEMBRO"
-}
+
 
 def registrar_log_5s(mensagem):
     timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -426,39 +426,57 @@ def analisar_e_corrigir_planilha_boletins(drive_service):
         
     return True
 
+LOCK_FILE = pathlib.Path(current_dir) / ".agente.lock"
+
+def adquirir_lock() -> bool:
+    if LOCK_FILE.exists():
+        try:
+            pid = LOCK_FILE.read_text().strip()
+            if pid:
+                os.kill(int(pid), 0)  # Verifica se processo existe no Linux
+                print(f"[LOCK] Agente já em execução (PID {pid}). Abortando.")
+                return False
+        except (ProcessLookupError, ValueError):
+            pass  # Processo morreu, prossegue
+        except Exception:
+            pass
+    try:
+        LOCK_FILE.write_text(str(os.getpid()))
+        atexit.register(lambda: LOCK_FILE.unlink(missing_ok=True))
+        return True
+    except Exception as e:
+        print(f"[LOCK] Erro ao criar lockfile: {e}")
+        return False
+
+def _run_pipeline(nome: str, script_path: str) -> bool:
+    full_path = os.path.join(project_root, script_path).replace("\\", "/")
+    print(f"  -> Iniciando {nome}: {full_path}")
+    try:
+        res = subprocess.run(
+            [sys.executable, full_path],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+        )
+        print(f"----- {nome} Output -----\n{res.stdout}")
+        if res.stderr:
+            print(f"----- {nome} Errors -----\n{res.stderr}")
+        ok = res.returncode == 0
+        registrar_log_5s(f"Pipeline {nome} {'concluído' if ok else 'falhou'}.")
+        return ok
+    except Exception as e:
+        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline {nome}: {e}")
+        return False
+
 def executar_pipelines():
     print("\n[Agente] Disparando pipelines de gravação física (subprocessos)...")
-    
-    script_boletins = os.path.join(project_root, "modules/boletins/gerar_boletins_tts.py").replace("\\", "/")
-    print(f"  -> Iniciando Boletins: {script_boletins}")
-    try:
-        res = subprocess.run([sys.executable, script_boletins], capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        print("----- Boletins Output -----")
-        print(res.stdout)
-        if res.stderr:
-            print("----- Boletins Errors -----")
-            print(res.stderr)
-        registrar_log_5s("Pipeline de Boletins concluído com sucesso.")
-    except Exception as e:
-        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Boletins: {e}")
-        
-    script_njud = os.path.join(project_root, "modules/jornal/gerar_njud_tts.py").replace("\\", "/")
-    print(f"  -> Iniciando NJUD: {script_njud}")
-    try:
-        res = subprocess.run([sys.executable, script_njud], capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        print("----- NJUD Output -----")
-        print(res.stdout)
-        if res.stderr:
-            print("----- NJUD Errors -----")
-            print(res.stderr)
-        registrar_log_5s("Pipeline de Jornal NJUD concluído com sucesso.")
-    except Exception as e:
-        registrar_log_5s(f"CRÍTICO: Falha ao disparar pipeline de Jornal NJUD: {e}")
+    ok_boletins = _run_pipeline("Boletins", "modules/boletins/gerar_boletins_tts.py")
+    ok_njud = _run_pipeline("NJUD", "modules/jornal/gerar_njud_tts.py")
+    ok_giro = _run_pipeline("Giro", "modules/giro/giro_pipeline.py")
+    return ok_boletins and ok_njud and ok_giro
 
 def obter_sufixo_data_njud(refer_val):
     if not refer_val:
         return ""
-    if isinstance(refer_val, (datetime, datetime.date)):
+    if isinstance(refer_val, (datetime, date)):
         return refer_val.strftime("%d-%m")
     refer_str = str(refer_val).strip()
     m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
@@ -472,23 +490,19 @@ def obter_sufixo_data_njud(refer_val):
 def obter_caminho_mes_njud(refer_val):
     if not refer_val:
         return "6 - JUNHO"
+    if isinstance(refer_val, (datetime, date)):
+        return MONTH_MAP_FULL.get(refer_val.month, "6 - JUNHO")
     refer_str = str(refer_val).strip()
-    if "JUNHO" in refer_str.upper() or refer_str.startswith("6 "):
-        return "6 - JUNHO"
-    elif "MAIO" in refer_str.upper() or refer_str.startswith("5 "):
-        return "5 - MAIO"
-    elif "ABRIL" in refer_str.upper() or refer_str.startswith("4 "):
-        return "4 - ABRIL"
-    elif "MARÇO" in refer_str.upper() or refer_str.startswith("3 "):
-        return "3 - MARÇO"
-    elif "FEVEREIRO" in refer_str.upper() or refer_str.startswith("2 "):
-        return "2 - FEVEREIRO"
-    elif "JANEIRO" in refer_str.upper() or refer_str.startswith("1 "):
-        return "1 - JANEIRO"
-        
+    for m_num, m_full in MONTH_MAP_FULL.items():
+        m_name = m_full.split(" - ")[1]
+        if m_name in refer_str.upper() or refer_str.startswith(f"{m_num} "):
+            return m_full
     m = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', refer_str)
     if m:
-        return MONTH_MAP.get(int(m.group(2)), "6 - JUNHO")
+        return MONTH_MAP_FULL.get(int(m.group(2)), "6 - JUNHO")
+    m2 = re.search(r'(\d{2})[-/](\d{2})[-/](\d{4})', refer_str)
+    if m2:
+        return MONTH_MAP_FULL.get(int(m2.group(2)), "6 - JUNHO")
     return refer_str
 
 def verificar_e_atualizar_planilha_njud(drive_service):
@@ -605,12 +619,23 @@ def run_agent_once(drive_service):
     # 4. Auditar e fechar planilhas locais
     if drive_service:
         verificar_e_atualizar_planilha_njud(drive_service)
+        
+    # 5. Enviar relatório consolidado do dia
+    email_recipient = carregar_env_var("EMAIL_RECIPIENT", "thi.macedo@gmail.com")
+    try:
+        from core.send_report import send_daily_report_email
+        send_daily_report_email(email_recipient)
+    except Exception as e:
+        print(f"[AVISO] Falha ao disparar envio do relatório consolidado: {e}")
     
     print("\n" + "="*60)
     print("=== AGENTE DE IA DA RÁDIO TJRN - FIM DA EXECUÇÃO ===")
     print("="*60)
 
 def main():
+    if not adquirir_lock():
+        sys.exit(1)
+        
     parser = argparse.ArgumentParser(description="Agente de IA supervisor da Rádio TJRN.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--once", action="store_true", help="Executa o agente apenas uma vez.")

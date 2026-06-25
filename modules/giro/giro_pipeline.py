@@ -142,9 +142,9 @@ receita_giro = ProgramRecipe(
     local_work_dir=LOCAL_WORK_DIR,
     system_prompt=SYSTEM_PROMPT,
     voice_strategy=VoiceStrategy(
-    type='intra_file',
-    voices=["pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-BR-ElzaNeural", "pt-BR-ThalitaNeural"]
-),
+        type='intra_file',
+        voices=["pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-BR-ElzaNeural", "pt-BR-ThalitaNeural"]
+    ),
     assembly=AssemblyRecipe(
         profile_path=project_root / "assets" / "profiles" / "giro_profile.json"
     ),

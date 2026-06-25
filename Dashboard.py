@@ -179,8 +179,8 @@ if pagina == "🎛️ Produção":
 # -------------------------------------------------------------------
 
 elif pagina == "🟢 Aprovação de Áudio":
-    st.title("🟢 Aprovação de Áudio")
-    st.write("Aprovar gravações clean e iniciar a montagem final no serviço Voice Edit Agent.")
+    st.title("🟢 Aprovação de Áudio — Locução Humana")
+    st.write("Envie gravações de locução humana, analise erros ou repetições, aprove e inicie a montagem final com trilhas e vinhetas.")
 
     voice_agent_url = os.getenv("VOICE_AGENT_URL", "http://127.0.0.1:8002").rstrip("/")
     st.info(f"Voice Agent ativo em: {voice_agent_url}")
@@ -189,67 +189,163 @@ elif pagina == "🟢 Aprovação de Áudio":
         url = f"{voice_agent_url}{endpoint}"
         return _http_request(method, url, payload)
 
-    with st.form("voice_approval_form"):
-        st.subheader("✅ Aprovar e montar")
-        program = st.text_input("Programa", value="", help="ID do programa usado na configuração de áudio e montagem.")
-        arquivo_clean = st.text_input("Arquivo clean aprovado", value="", help="Caminho completo do arquivo WAV processado.")
-        cortes_json = st.text_area("Cortes aprovados (JSON)", value="[]", height=120,
-                                  help="Informe uma lista JSON de cortes: [{\"start_ms\": 1000, \"end_ms\": 3000}]")
-        approve_button = st.form_submit_button("✅ Aprovar e montar")
+    # 1. Enviar Nova Locução
+    st.subheader("📤 Enviar Novo Áudio de Locução Humana")
+    prog_opcoes = {
+        "Giro nas Comarcas": "giro",
+        "Notícias do Judiciário (NJUD)": "njud",
+        "Boletins Notícias da Hora": "boletins"
+    }
+    
+    col_up1, col_up2 = st.columns([1, 2])
+    with col_up1:
+        prog_nome = st.selectbox("Selecione o Programa", list(prog_opcoes.keys()))
+        prog_id = prog_opcoes[prog_nome]
+    with col_up2:
+        uploaded_file = st.file_uploader("Selecione o arquivo gravado pelo locutor (.mp3 ou .wav)", type=["mp3", "wav"])
 
-        if approve_button:
+    if uploaded_file is not None:
+        if st.button("🚀 Iniciar Análise & Limpeza de Áudio"):
+            # Salvar arquivo na pasta inputs/{programa}/
+            input_dir = pathlib.Path("inputs") / prog_id
+            input_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = input_dir / uploaded_file.name
+            
             try:
-                cortes = json.loads(cortes_json or "[]")
-                status_code, data = call_voice_agent("POST", "/voice/approve", {
-                    "program": program,
-                    "arquivo_clean": arquivo_clean,
-                    "cortes": cortes,
-                })
-                if status_code == 200:
-                    st.success(f"Montagem iniciada. Job ID: {data.get('job_id')}")
-                    st.json(data)
-                else:
-                    st.error(f"Falha ao chamar Voice Agent: {status_code}")
-                    st.json(data)
+                with open(dest_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.success(f"Arquivo salvo localmente em: `{dest_path}`")
+                
+                # Chamar a API /voice/process
+                with st.spinner("Processando áudio (Whisper local & Detecção de Hésitações)..."):
+                    status_code, data = call_voice_agent("POST", "/voice/process", {
+                        "program": prog_id,
+                        "input_path": str(dest_path.resolve()),
+                        "auto_approve": False
+                    })
+                    
+                    if status_code == 200:
+                        st.success("Áudio enviado com sucesso! Job cadastrado na fila.")
+                        st.rerun()
+                    else:
+                        st.error(f"Erro ao cadastrar processamento na API: {status_code} - {data}")
             except Exception as e:
-                st.error(f"Erro ao processar aprovação: {e}")
+                st.error(f"Falha ao processar arquivo: {e}")
 
-    with st.form("voice_rejection_form"):
-        st.subheader("❌ Rejeitar gravação")
-        rejected_program = st.text_input("Programa (rejeição)", value="")
-        rejected_audio = st.text_input("Arquivo clean", value="")
-        motivo = st.text_area("Motivo da rejeição", value="", height=120)
-        reject_button = st.form_submit_button("❌ Rejeitar")
+    st.markdown("---")
 
-        if reject_button:
-            status_code, data = call_voice_agent("POST", "/voice/reject", {
-                "program": rejected_program,
-                "arquivo_clean": rejected_audio,
-                "motivo": motivo,
-            })
-            if status_code == 200:
-                st.success(f"Rejeição registrada. Job ID: {data.get('job_id')}")
-                st.json(data)
-            else:
-                st.error(f"Falha ao chamar Voice Agent para rejeição: {status_code}")
-                st.json(data)
-
-    with st.form("voice_status_form"):
-        st.subheader("ℹ️ Consultar status do job")
-        job_status_id = st.text_input("Job ID", value="")
-        query_button = st.form_submit_button("🔎 Consultar")
-
-        if query_button:
-            if not job_status_id:
-                st.error("Informe o Job ID para consultar o status.")
-            else:
-                status_code, data = call_voice_agent("GET", f"/voice/status/{job_status_id}")
-                if status_code == 200:
-                    st.success("Status obtido com sucesso")
-                    st.json(data)
-                else:
-                    st.error(f"Falha na consulta: {status_code}")
-                    st.json(data)
+    # 2. Exibir Fila de Jobs em Tempo Real
+    st.subheader("📋 Fila de Locuções Humana & Status")
+    
+    try:
+        status_code, jobs_dict = call_voice_agent("GET", "/voice/jobs")
+        
+        if status_code == 200 and jobs_dict:
+            # Ordena por atualizado mais recentemente
+            sorted_jobs = sorted(jobs_dict.items(), key=lambda x: x[1].get("updated_at", 0), reverse=True)
+            
+            for job_id, job in sorted_jobs:
+                prog = job.get("program", "default").upper()
+                status = job.get("status", "desconhecido")
+                input_file = pathlib.Path(job.get("input_path", "")).name
+                
+                # Cores e rótulos
+                status_labels = {
+                    "awaiting_approval": "🟡 Aguardando Aprovação",
+                    "completed": "🟢 Montado com Sucesso",
+                    "running": "🔵 Processando...",
+                    "failed": "🔴 Falhou",
+                    "accepted": "🔵 Aceito, Montando...",
+                    "rejected": "⚪ Rejeitado"
+                }
+                status_label = status_labels.get(status, f"❓ {status}")
+                
+                with st.expander(f"Job {prog}: {input_file} ({status_label})", expanded=(status == "awaiting_approval")):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown(f"**ID do Job:** `{job_id}`")
+                        st.markdown(f"**Áudio Processado:** `{job.get('clean_path')}`")
+                        
+                        # Exibe relatório HTML se existir
+                        report_file = job.get("report")
+                        if report_file and os.path.exists(report_file):
+                            st.info(f"📄 Relatório de qualidade gerado localmente em: `{report_file}`")
+                        
+                        # Exibe issues encontradas
+                        issues = job.get("issues", [])
+                        if issues:
+                            st.warning(f"⚠️ **Hésitações/Problemas Detectados ({len(issues)}):**")
+                            for issue in issues[:5]:
+                                st.write(f"- Tipo: *{issue.get('type')}* | Trecho: \"{issue.get('text')}\"")
+                            if len(issues) > 5:
+                                st.write(f"*(e mais {len(issues) - 5} outros trechos)*")
+                        else:
+                            st.success("✨ Nenhuma repetição ou hesitação crítica detectada no áudio.")
+                            
+                    with col2:
+                        st.markdown("**Ações Disponíveis:**")
+                        
+                        if status == "awaiting_approval":
+                            if st.button("✅ Aprovar & Montar", key=f"app_{job_id}"):
+                                with st.spinner("Mixando com trilhas e vinhetas..."):
+                                    s_code, res = call_voice_agent("POST", "/voice/approve", {
+                                        "program": job.get("program"),
+                                        "arquivo_clean": job.get("clean_path"),
+                                        "cortes": [],
+                                        "job_id": job_id
+                                    })
+                                    if s_code == 200:
+                                        st.success("Aprovado! Iniciada montagem em background.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Erro: {res}")
+                                        
+                            if st.button("❌ Rejeitar", key=f"rej_{job_id}"):
+                                with st.spinner("Registrando rejeição..."):
+                                    s_code, res = call_voice_agent("POST", "/voice/reject", {
+                                        "program": job.get("program"),
+                                        "arquivo_clean": job.get("clean_path"),
+                                        "motivo": "Rejeitado pelo editor humano.",
+                                        "job_id": job_id
+                                    })
+                                    if s_code == 200:
+                                        st.warning("Locução Rejeitada.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Erro: {res}")
+                                        
+                        elif status == "completed":
+                            final_path = job.get("final_path")
+                            if final_path and os.path.exists(final_path):
+                                st.success("🎉 Áudio Final Pronto:")
+                                st.audio(final_path)
+                                with open(final_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Baixar Áudio Final (MP3)",
+                                        data=f,
+                                        file_name=pathlib.Path(final_path).name,
+                                        mime="audio/mp3",
+                                        key=f"dl_{job_id}"
+                                    )
+                            else:
+                                st.warning("Áudio final não localizado fisicamente no disco.")
+                                
+                        elif status in ["running", "accepted"]:
+                            st.info("⏳ Processando montagem em segundo plano... Por favor, aguarde.")
+                            if st.button("🔄 Atualizar Status", key=f"up_{job_id}"):
+                                st.rerun()
+                                
+                        elif status == "failed":
+                            st.error(f"Erro no processamento: {job.get('error')}")
+                            
+        else:
+            st.info("Nenhum áudio de locução humana em andamento ou aguardando aprovação na fila.")
+            
+    except Exception as e:
+        st.error("🔌 Não foi possível conectar ao serviço local Voice Edit Agent.")
+        st.warning("Certifique-se de que a API FastAPI está em execução na porta 8002. Para ativá-la, execute no terminal:")
+        st.code("uvicorn voice_agent.api:app --host 0.0.0.0 --port 8002")
 
 # -------------------------------------------------------------------
 # PÁGINA 2: CONFIGURAR PROGRAMAS (Pastas e Vozes)
