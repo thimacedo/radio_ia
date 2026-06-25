@@ -16,10 +16,13 @@ Uso como módulo:
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Dependências externas — instale com:
@@ -112,6 +115,8 @@ def export_gdoc_to_txt(
     gdoc_path: Path,
     credentials_path: Path = CREDENTIALS_PATH,
     encoding: str = "utf-8",
+    use_cache: bool = True,
+    cache_ttl_s: int = 3600,
 ) -> str:
     """
     Exporta o Google Doc apontado pelo arquivo .gdoc como texto puro.
@@ -124,6 +129,10 @@ def export_gdoc_to_txt(
         Caminho para o JSON de credenciais da conta de serviço.
     encoding : str
         Codificação usada para decodificar a resposta da API (padrão: utf-8).
+    use_cache : bool
+        Se True, verifica o DocCache antes de baixar (padrão: True).
+    cache_ttl_s : int
+        TTL do cache em segundos (padrão: 3600 = 1 hora).
 
     Retorna
     -------
@@ -155,7 +164,7 @@ def export_gdoc_to_txt(
         name = gdoc_path.name
         if name.lower().endswith(".gdoc"):
             name = name[:-5]
-        
+
         query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.document' and trashed = false"
         results = service.files().list(
             q=query,
@@ -163,7 +172,7 @@ def export_gdoc_to_txt(
             fields='files(id, name)',
             pageSize=5
         ).execute()
-        
+
         files = results.get('files', [])
         if files:
             doc_id = files[0]['id']
@@ -171,7 +180,26 @@ def export_gdoc_to_txt(
         else:
             raise ValueError(f"Não foi possível localizar o documento '{name}' no Google Drive via API.")
 
-    # Exporta o documento como texto puro
+    # ----------------------------------------------------------------
+    # Cache hit: retorna conteúdo salvo sem consumir quota da API
+    # ----------------------------------------------------------------
+    if use_cache:
+        try:
+            from core.doc_cache import DocCache
+            _cache = DocCache(default_ttl_s=cache_ttl_s)
+            cached = _cache.get(doc_id, max_age_s=cache_ttl_s)
+            if cached is not None:
+                logger.info("[DocCache] HIT para doc_id=%s — usando conteúdo em cache.", doc_id)
+                return cached
+        except Exception as cache_err:
+            logger.warning("[DocCache] Falha ao ler cache (continuando sem cache): %s", cache_err)
+            _cache = None
+    else:
+        _cache = None
+
+    # ----------------------------------------------------------------
+    # Cache miss: exporta o documento como texto puro via API
+    # ----------------------------------------------------------------
     request = service.files().export_media(
         fileId=doc_id,
         mimeType="text/plain",
@@ -185,6 +213,14 @@ def export_gdoc_to_txt(
             _, done = downloader.next_chunk()
         tmp.seek(0)
         content = tmp.read().decode(encoding, errors="replace")
+
+    # Salva no cache para próximas requisições
+    if _cache is not None:
+        try:
+            _cache.set(doc_id, content, ttl_s=cache_ttl_s)
+            logger.info("[DocCache] MISS — conteúdo salvo no cache (doc_id=%s).", doc_id)
+        except Exception as cache_save_err:
+            logger.warning("[DocCache] Falha ao salvar no cache: %s", cache_save_err)
 
     return content
 
