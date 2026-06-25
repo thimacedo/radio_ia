@@ -109,21 +109,23 @@ def enviar_trigger_sync_web_app(url, sheet_names):
         except Exception as e:
             print(f"[ERRO] Falha ao conectar para disparar a sincronização: {e}")
 
-# Mapeamento dos meses no formato NJUD
-MONTH_MAP = {
-    1: "1 - JANEIRO",
-    2: "2 - FEVEREIRO",
-    3: "3 - MARÇO",
-    4: "4 - ABRIL",
-    5: "5 - MAIO",
-    6: "6 - JUNHO",
-    7: "7 - JULHO",
-    8: "8 - AGOSTO",
-    9: "9 - SETEMBRO",
-    10: "10 - OUTUBRO",
-    11: "11 - NOVEMBRO",
-    12: "12 - DEZEMBRO"
-}
+try:
+    from core.constants import MONTH_MAP_FULL as MONTH_MAP
+except ImportError:
+    MONTH_MAP = {
+        1: "1 - JANEIRO",
+        2: "2 - FEVEREIRO",
+        3: "3 - MARÇO",
+        4: "4 - ABRIL",
+        5: "5 - MAIO",
+        6: "6 - JUNHO",
+        7: "7 - JULHO",
+        8: "8 - AGOSTO",
+        9: "9 - SETEMBRO",
+        10: "10 - OUTUBRO",
+        11: "11 - NOVEMBRO",
+        12: "12 - DEZEMBRO"
+    }
 
 # Carregar assets de áudio
 def carregar_audio_asset(caminho, label):

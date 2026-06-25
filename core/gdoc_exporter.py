@@ -199,7 +199,29 @@ def export_gdoc_to_txt(
         else:
             raise ValueError(f"Não foi possível localizar o documento '{name}' no Google Drive via API.")
 
-    return _download_doc_content(doc_id, service, encoding)
+    if doc_id:
+        try:
+            from core.doc_cache import get_cache
+            cache = get_cache(db_path=project_root / "data" / "doc_cache.db")
+            cached = cache.get(doc_id)
+            if cached is not None:
+                print(f"  [DocCache] HIT para {doc_id} ({gdoc_path.name})")
+                return cached
+        except Exception as e_cache:
+            print(f"  [AVISO] Falha ao ler do cache para {doc_id}: {e_cache}")
+            cache = None
+    else:
+        cache = None
+
+    content = _download_doc_content(doc_id, service, encoding)
+
+    if cache:
+        try:
+            cache.set(doc_id, content)
+        except Exception as e_cache_set:
+            print(f"  [AVISO] Falha ao gravar no cache para {doc_id}: {e_cache_set}")
+
+    return content
 
 
 def export_gdoc_to_txt_cached(

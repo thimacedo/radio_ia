@@ -13,7 +13,8 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 try:
-    from core.best_practices import carregar_env_var, MONTH_MAP_SHORT, WEEKDAYS_PT
+    from core.best_practices import carregar_env_var
+    from core.constants import MONTH_MAP_SHORT, WEEKDAYS_PT
 except ImportError:
     def carregar_env_var(chave, fallback):
         return fallback

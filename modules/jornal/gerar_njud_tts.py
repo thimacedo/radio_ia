@@ -356,7 +356,7 @@ async def processar_jornal(row_idx, row_data, assets, llm, test_mode):
     else:
         # FALLBACK: Processamento linear antigo
         print("  -> Usando fallback linear (sem estrutura de seções)...")
-        falas = extrair_linhas_fala(roteiro_revisado)
+        falas = lines_to_falas(roteiro_revisado.splitlines())
         if not falas:
             print(f"  [ERRO] Nenhuma fala extraída no modo fallback.")
             return False
