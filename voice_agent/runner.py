@@ -31,7 +31,8 @@ def process_file(input_path: str, auto_approve: bool = True, job_id: str = None)
         raise FileNotFoundError(input_path)
 
     program = infer_program_from_path(p)
-    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    job_id = job_id or str(uuid.uuid4())
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     processed_dir = Path("processed") / program
     processed_dir.mkdir(parents=True, exist_ok=True)
