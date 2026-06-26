@@ -20,10 +20,13 @@ Uso com cache (recomendado para o agente):
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Dependências externas — instale com:
@@ -45,6 +48,7 @@ except ImportError as exc:
 # ---------------------------------------------------------------------------
 # Configurações — ajuste se necessário
 # ---------------------------------------------------------------------------
+import sys
 project_root = Path(__file__).parent.parent
 
 try:
@@ -140,6 +144,8 @@ def export_gdoc_to_txt(
     gdoc_path: Path,
     credentials_path: Path = CREDENTIALS_PATH,
     encoding: str = "utf-8",
+    use_cache: bool = True,
+    cache_ttl_s: int = 3600,
 ) -> str:
     """
     Exporta o Google Doc apontado pelo arquivo .gdoc como texto puro.
@@ -152,6 +158,10 @@ def export_gdoc_to_txt(
         Caminho para o JSON de credenciais da conta de serviço.
     encoding : str
         Codificação usada para decodificar a resposta da API (padrão: utf-8).
+    use_cache : bool
+        Se True, verifica o DocCache antes de baixar (padrão: True).
+    cache_ttl_s : int
+        TTL do cache em segundos (padrão: 3600 = 1 hora).
 
     Retorna
     -------

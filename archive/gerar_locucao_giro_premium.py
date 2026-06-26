@@ -7,10 +7,14 @@ from pydub import AudioSegment
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Configuração de Caminhos
-# ---------------------------------------------------------------------------
-BASE_DIR    = Path(r"E:\NJUD")
-GIRO_DIR    = BASE_DIR / "PROGRAMA GIRO NAS COMARCAS"
+import sys
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+from core.best_practices import carregar_env_var
+
+BASE_DIR    = project_root
+GIRO_DIR    = BASE_DIR / "modules" / "giro" / "workspace"
 INPUT_DIR   = GIRO_DIR / "tts_txt_revisado"
 OUTPUT_DIR  = GIRO_DIR / "tts_mp3_premium"
 

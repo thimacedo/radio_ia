@@ -7,6 +7,7 @@ import urllib.request
 import openpyxl
 import shutil
 from pydub import AudioSegment
+import shutil
 
 # Certificar caminhos corretos no python path
 current_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
@@ -20,6 +21,8 @@ from core.best_practices import carregar_env_var
 from core.constants import MONTH_MAP_SHORT, MONTH_MAP_FULL, ANO_SHORT, extrair_mes_num_de_caminho
 
 DRIVE_ROOT = carregar_env_var("DRIVE_ROOT", "H:/Meu Drive/RADIO TJRN CONTEÚDO")
+
+from core.best_practices import carregar_env_var
 
 # Configurações
 PATH_PLANILHA = os.path.join(DRIVE_ROOT, "NOT JUDICIARIO (5 MIN)", "NJUD 2026.xlsx").replace("\\", "/")

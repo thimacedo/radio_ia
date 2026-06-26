@@ -10,6 +10,8 @@ import gc
 import pathlib
 from datetime import datetime, date
 import openpyxl
+import pathlib
+import atexit
 
 # Corrigir encodificação de console no Windows para evitar quedas por caracteres unicode (ex: ✔)
 try:
@@ -34,9 +36,17 @@ except ImportError:
 
 try:
     from core.llm_factory import LLMFactory
+    from core.constants import MONTH_MAP_FULL
     llm_available = True
 except ImportError:
     llm_available = False
+
+try:
+    from core.drive_watcher import DriveWatcher
+    drive_watcher_available = True
+except ImportError:
+    DriveWatcher = None
+    drive_watcher_available = False
 
 # Configurações
 SPREADSHEET_ID_BOLETINS = "1b1xnzvA00H1JC9uTvd6c-PBwQjEzGRs6t_raXG_ztsU"
@@ -812,6 +822,9 @@ def run_agent_once(drive_service):
         enviar_notificacao("notificar_erro", "Agente IA", str(e))
 
 def main():
+    if not adquirir_lock():
+        sys.exit(1)
+        
     parser = argparse.ArgumentParser(description="Agente de IA supervisor da Rádio TJRN.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--once", action="store_true", help="Executa o agente apenas uma vez.")
@@ -834,6 +847,42 @@ def main():
         run_agent_once(drive_service)
     elif args.daemon:
         print(f"[Agente] Modo Daemon ativo. Intervalo de execução: {args.interval} segundos.")
+
+        # ---------------------------------------------------------------
+        # Watcher reativo (opcional): detecta novos arquivos no Drive
+        # ---------------------------------------------------------------
+        watcher_thread = None
+        if args.watch and drive_watcher_available and drive_service:
+            def _on_new_njud(file_meta):
+                print(f"[Watcher] Novo roteiro NJUD detectado: {file_meta.get('name')} — disparando pipeline NJUD.")
+                _run_pipeline("NJUD", "modules/jornal/njud_pipeline.py")
+
+            def _on_new_giro(file_meta):
+                print(f"[Watcher] Novo roteiro Giro detectado: {file_meta.get('name')} — disparando pipeline Giro.")
+                _run_pipeline("Giro", "modules/giro/giro_pipeline.py")
+
+            njud_folder_id = carregar_env_var("NJUD_ROTEIROS_FOLDER_ID", "")
+            giro_folder_id = carregar_env_var("GIRO_ROTEIROS_FOLDER_ID", "")
+
+            watched = {}
+            if njud_folder_id:
+                watched[njud_folder_id] = _on_new_njud
+            if giro_folder_id:
+                watched[giro_folder_id] = _on_new_giro
+
+            if watched:
+                watcher = DriveWatcher(
+                    service=drive_service,
+                    watched_folders=watched,
+                    poll_s=120,  # verifica a cada 2 minutos
+                )
+                watcher_thread = watcher.run_background()
+                print(f"[Agente] DriveWatcher ativo — monitorando {len(watched)} pasta(s).")
+            else:
+                print("[Agente][AVISO] --watch ativado mas nenhum FOLDER_ID configurado no .env. Watcher inativo.")
+        elif args.watch and not drive_watcher_available:
+            print("[Agente][AVISO] --watch ignorado: módulo core.drive_watcher não disponível.")
+
         try:
             while True:
                 run_agent_once(drive_service)
@@ -841,6 +890,8 @@ def main():
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             print("\n[Agente] Parando execução em segundo plano...")
+            if watcher_thread and 'watcher' in dir():
+                watcher.stop()
 
 if __name__ == "__main__":
     main()

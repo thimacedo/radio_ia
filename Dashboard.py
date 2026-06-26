@@ -275,8 +275,8 @@ elif pagina == "🕵️ Acompanhamento do Agente":
 # -------------------------------------------------------------------
 
 elif pagina == "🟢 Aprovação de Áudio":
-    st.title("🟢 Aprovação de Áudio")
-    st.write("Aprovar gravações clean e iniciar a montagem final no serviço Voice Edit Agent.")
+    st.title("🟢 Aprovação de Áudio — Locução Humana")
+    st.write("Envie gravações de locução humana, analise erros ou repetições, aprove e inicie a montagem final com trilhas e vinhetas.")
 
     voice_agent_url = os.getenv("VOICE_AGENT_URL", "http://127.0.0.1:8002").rstrip("/")
     st.info(f"Voice Agent ativo em: {voice_agent_url}")

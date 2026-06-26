@@ -4,45 +4,78 @@ from email.mime.multipart import MIMEMultipart
 import pathlib
 import datetime
 import os
+import sys
 
-def get_env_key(key_name):
-    env_path = pathlib.Path(r"E:\NJUD\.env")
-    if env_path.exists():
-        content = env_path.read_text(encoding="utf-8")
-        for line in content.splitlines():
-            if line.startswith(f"{key_name}="):
-                return line.split("=", 1)[1].strip()
-    return None
+# Garante project_root no python path para imports corretos
+project_root = pathlib.Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
 
-def send_report_email(recipient_email, programs_list):
-    # Configurações de e-mail (usando variáveis de ambiente para segurança)
-    # Nota: O usuário precisará configurar EMAIL_USER e EMAIL_PASS no .env
-    # Se não existirem, o script apenas imprimirá o relatório.
-    
-    sender_email = get_env_key("EMAIL_USER")
-    sender_password = get_env_key("EMAIL_PASS")
-    
-    report_content = f"Relatório de Programas Giro nas Comarcas Gerados em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-    report_content += "Programas processados e sincronizados com o Google Drive:\n"
-    for prog in sorted(programs_list):
-        report_content += f"- {prog}\n"
-    
-    report_content += "\nSistema NJUD - Automação TJRN"
+from core.best_practices import carregar_env_var
 
-    print("\n=== RELATÓRIO DE GERAÇÃO ===")
+def obter_relatorio_dia() -> str:
+    """Carrega dados do banco SQLite execucoes e constrói o relatório das últimas 24h."""
+    from core.db import DB_PATH
+    import sqlite3
+    import time
+    
+    if not DB_PATH.exists():
+        return "Nenhum histórico de execução SQLite encontrado no disco."
+        
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        cursor = conn.cursor()
+        um_dia_atras = time.time() - 86400
+        cursor.execute(
+            """
+            SELECT pipeline, ts_inicio, status, duracao_audio_s, erro_msg 
+            FROM execucoes 
+            WHERE ts_inicio >= ?
+            ORDER BY ts_inicio DESC
+            """,
+            (um_dia_atras,)
+        )
+        rows = cursor.fetchall()
+        
+        if not rows:
+            return "Nenhuma execução de pipeline registrada nas últimas 24 horas."
+            
+        report = "Execuções de Pipelines de Áudio (Últimas 24h):\n"
+        report += "="*70 + "\n"
+        for pipeline, ts_inicio, status, duracao, erro in rows:
+            dt_str = datetime.datetime.fromtimestamp(ts_inicio).strftime("%H:%M:%S")
+            duracao_str = f"{duracao:.1f}s" if duracao else "N/A"
+            status_symbol = "✔ OK" if status == "ok" else ("❌ ERRO" if status == "erro" else "➖ SKIP")
+            report += f"[{dt_str}] {pipeline.upper():<20} | {status_symbol:<7} | Áudio: {duracao_str:<6}"
+            if erro:
+                report += f" | Erro: {erro}"
+            report += "\n"
+        return report
+    finally:
+        conn.close()
+
+def send_daily_report_email(recipient_email: str):
+    """Gera e envia o e-mail de relatório consolidado de execuções do dia."""
+    sender_email = carregar_env_var("EMAIL_USER", None)
+    sender_password = carregar_env_var("EMAIL_PASS", None)
+    
+    report_content = f"Relatório Consolidado Rádio IA TJRN — {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+    report_content += obter_relatorio_dia()
+    report_content += "\n\nSistema Rádio IA - Automação TJRN"
+    
+    print("\n=== RELATÓRIO CONSOLIDADO DO DIA ===")
     print(report_content)
-
+    
     if not sender_email or not sender_password:
         print("\n[AVISO] EMAIL_USER ou EMAIL_PASS não configurados no .env. E-mail não enviado.")
         return
-
+        
     msg = MIMEMultipart()
     msg['From'] = sender_email
     msg['To'] = recipient_email
-    msg['Subject'] = f"Relatório Giro nas Comarcas - {datetime.datetime.now().strftime('%d/%m/%Y')}"
-    
+    msg['Subject'] = f"Relatório Rádio IA TJRN - {datetime.datetime.now().strftime('%d/%m/%Y')}"
     msg.attach(MIMEText(report_content, 'plain'))
-
+    
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -54,7 +87,5 @@ def send_report_email(recipient_email, programs_list):
         print(f"\n[ERRO] Falha ao enviar e-mail: {e}")
 
 if __name__ == "__main__":
-    # Teste: pegar arquivos da pasta premium
-    output_dir = pathlib.Path(r"E:\NJUD\PROGRAMA GIRO NAS COMARCAS\tts_mp3_premium")
-    progs = [f.name for f in output_dir.glob("*.mp3")]
-    send_report_email("thi.macedo@gmail.com", progs)
+    email_dest = carregar_env_var("EMAIL_RECIPIENT", "thi.macedo@gmail.com")
+    send_daily_report_email(email_dest)
