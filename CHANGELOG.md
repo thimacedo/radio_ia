@@ -1,6 +1,51 @@
 # CHANGELOG — Rádio IA TJRN
-**Data:** 21 de Junho de 2026
-**Versão:** 2.x → 2.1
+
+## v2.2 — 25 de Junho de 2026 — Sincronização e Módulos Novos
+
+### ✅ Sincronização `origin/minhas-alteracoes`
+**Commit:** `e021bbf` (HEAD atual)
+**Estratégia:** Merge com `-X ours` (preserva versão local, mais robusta)
+
+Módulos novos incorporados do remoto:
+- `core/db.py` — observabilidade via SQLite (`data/execucoes.db`)
+- `core/drive_watcher.py` — watcher reativo do Google Drive via `changes.list()` API
+- `Voice_Edit_Agent_Lacunas.docx` — documento de referência
+- 6 planilhas CSV (`modules/boletins/planilha_csv/{JAN-JUN}2026.csv`)
+
+Melhorias incorporadas:
+- `core/engine.py` — `PipelineEngine` com `dry_run` mode e validação de assets
+- `core/send_report.py` — geração de relatórios aprimorada
+- `.env.example` — 16 novas variáveis (`NJUD_ROTEIROS_FOLDER_ID`, `GIRO_ROTEIROS_FOLDER_ID`, `DOC_CACHE_TTL_S`, `CREDENTIALS_PATH`, `EMAIL_RECIPIENT`, etc.)
+- `voice_agent/runner.py` — fix `utcnow()` → `now(tz=timezone.utc)` (compat Python 3.12+)
+
+### ✅ Segurança — `.env` removido do tracking
+**Commit:** `e021bbf`
+
+- `git rm --cached .env` remove arquivo do tracking
+- Arquivo local preservado (2089 bytes)
+- Backup em `C:\Users\THIAGO\radio_ia_backup_files\dotenv_pre_untrack.bak`
+- ⚠️ **PENDENTE:** Rotação manual das 3 API keys (OpenAI, Gemini, Groq) que permanecem no histórico antigo
+
+### ✅ Documentação completa criada
+- `README.md` reescrito (visão geral + links)
+- `docs/ARCHITECTURE.md` (arquitetura técnica detalhada)
+- `docs/OPERATIONS.md` (operação humana + troubleshooting)
+- `docs/SYNC_HISTORY.md` (registro auditável do merge)
+
+**Validação:**
+- 8 testes passando
+- Imports OK em `core.db`, `core.drive_watcher`, `core.engine`, `voice_agent.runner`
+- Sem marcadores de conflito restantes
+- Working tree limpo
+- Local == Remote HEAD: `e021bbf57871a6ba5794344c1b42ecec161e98f2`
+
+**Backup completo:**
+- 697 arquivos críticos (1.6 GB) em `C:\Users\THIAGO\radio_ia_backup_files`
+- Branch `backup-pre-merge-20260625` (ponto de restauração pré-merge)
+
+---
+
+## v2.1 — 21 de Junho de 2026
 
 ---
 

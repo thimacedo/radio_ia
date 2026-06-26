@@ -1,7 +1,52 @@
 # Registro de Demandas Pendentes — Rádio IA TJRN
-**Data de Consolidação:** 24 de Junho de 2026  
-**Status Geral:** 6 Bugs Críticos + 13 Dívidas Técnicas + 5 Otimizações de Impacto Alto Pendentes  
-**Prioridade:** 🔴 CRÍTICA (Bugs) → 🟡 ALTA (Refactor) → 🟢 MÉDIA (Otimizações)
+**Data de Consolidação:** 25 de Junho de 2026
+**Status Geral:** 6 Bugs Críticos + 13 Dívidas Técnicas + 5 Otimizações de Impacto Alto + 1 Demanda Crítica de Segurança Pendentes
+**Prioridade:** 🔴 CRÍTICA (Bugs + Segurança) → 🟡 ALTA (Refactor) → 🟢 MÉDIA (Otimizações)
+
+---
+
+## 🚨 NOVA DEMANDA CRÍTICA DE SEGURANÇA (25/jun/2026)
+
+### S1 — Rotação das API Keys Expostas no Histórico Git
+**Severidade:** 🔴 CRÍTICA — Credenciais reais podem ter sido expostas
+**Data:** 25/jun/2026
+**Origem:** Achado durante merge de sincronização (ver `docs/SYNC_HISTORY.md`)
+
+**Problema:**
+O arquivo `.env` estava **tracked no git** desde o commit `ee308c7` (data antiga), contendo 3 chaves de API reais:
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+
+Em 25/jun/2026, foi aplicado `git rm --cached .env` (commit `e021bbf`), removendo o arquivo do tracking. **PORÉM**, as chaves permanecem acessíveis no histórico de commits antigos — qualquer pessoa com acesso ao repositório público pode vê-las.
+
+**Ação necessária (manual, fora do escopo de automação):**
+
+1. **Rotacionar as 3 chaves:**
+   - OpenAI: https://platform.openai.com/api-keys → criar nova, revogar antiga
+   - Google AI Studio: https://aistudio.google.com/app/apikey → criar nova, revogar antiga
+   - Groq: https://console.groq.com/keys → criar nova, revogar antiga
+
+2. **Atualizar `.env` local** com as novas chaves (preservado em `E:\RÁDIO_IA\.env`)
+
+3. **Atualizar `.env` em qualquer deploy** (servidor, container, etc.)
+
+4. **Verificar uso indevido** nos 3 serviços:
+   - OpenAI: Usage → últimas 24h
+   - Gemini: AI Studio → Usage
+   - Groq: Console → Usage
+
+5. **(Opcional, recomendado)** Reescrever histórico:
+   ```bash
+   pip install git-filter-repo
+   git filter-repo --invert-paths --path .env
+   git push origin --force --all
+   ```
+   ⚠️ Invalida clones existentes — comunicar à equipe antes.
+
+**Status:** ⏳ PENDENTE
+
+---
 
 ---
 
