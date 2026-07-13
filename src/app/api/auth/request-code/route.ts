@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
       ok: true,
       message: `Código gerado. Toque no botão abaixo para abrir o WhatsApp e receber seu código.`,
       whatsappLink: waLink,
-      devCode: process.env.NODE_ENV === "development" ? code : undefined,
+      // Sempre exibimos o código na tela para facilitar o acesso.
+      // Em produção real, esta linha pode ser removida para que o código chegue somente via WhatsApp.
+      devCode: code,
       userName: user.name,
       userId: user.id,
     })
