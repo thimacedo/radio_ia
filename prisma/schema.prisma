@@ -1,0 +1,118 @@
+// Prisma schema - Sistema de Follow-up CCVideira Capim Macio
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===== USUÁRIOS (Recepção, Supervisor, Voluntário) =====
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  phone        String       @unique // formato: 5584999999999
+  role         String       @default("voluntario") // recepcao | supervisor | voluntario | admin
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  accessCodes    AccessCode[]
+  volunteerCards FollowUpCard[] @relation("VolunteerCards")
+  supervisorCards FollowUpCard[] @relation("SupervisorCards")
+  histories      CardHistory[]
+}
+
+// ===== CÓDIGOS DE ACESSO (login sem senha via WhatsApp) =====
+model AccessCode {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String   // 6 dígitos
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+// ===== DEPARTAMENTOS (ministérios por perfil) =====
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  // Critérios de matching (CSV)
+  minAge      Int? // null = sem limite
+  maxAge      Int?
+  genders     String? // CSV: "M,F,Outro"
+  maritalStatuses String? // CSV: "solteiro,casado,divorciado,viuvo"
+  color       String? // hex color para visual
+  createdAt   DateTime @default(now())
+
+  users   User[]
+  cards   FollowUpCard[]
+}
+
+// ===== VISITANTES =====
+model Visitor {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String
+  email         String?
+  age           Int?
+  birthDate     DateTime?
+  gender        String? // M | F | Outro
+  maritalStatus String? // solteiro | casado | divorciado | viuvo
+  address       String?
+  hasChildren   Boolean  @default(false)
+  invitedBy     String?
+  prayerRequest String?
+  notes         String?
+  visitDate     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  cards FollowUpCard[]
+}
+
+// ===== CARDS DE FOLLOW-UP =====
+model FollowUpCard {
+  id           String   @id @default(cuid())
+  visitorId    String
+  visitor      Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  volunteerId  String?
+  volunteer    User?    @relation("VolunteerCards", fields: [volunteerId], references: [id])
+  supervisorId String?
+  supervisor   User?    @relation("SupervisorCards", fields: [supervisorId], references: [id])
+
+  status       String   @default("novo")
+  // novo | em_contato | aguardando | visita_agendada | discipulado | concluido | sem_interesse
+  priority     String   @default("normal") // baixa | normal | alta
+  notes        String?
+  lastContactAt DateTime?
+  nextActionAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  history CardHistory[]
+}
+
+// ===== HISTÓRICO DO CARD =====
+model CardHistory {
+  id         String   @id @default(cuid())
+  cardId     String
+  card       FollowUpCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  userName   String
+  action     String   // criado | status_alterado | nota | redistribuido | prioridade | contato
+  fromStatus String?
+  toStatus   String?
+  message    String?
+  createdAt  DateTime @default(now())
+}
