@@ -1,0 +1,40 @@
+voice_edit:
+  deteccao:
+    repeticao_palavras: true
+    repeticao_frases: true
+    threshold_repeticao_chars: 10
+    hesitacoes: true
+    hesitacoes_lista: ["ééé", "ahn", "hmm", "né né", "assim assim", "repete", "novamente"]
+    silencio_longo_segundos: 0.8
+    silencio_critico_segundos: 2.5
+  audio:
+    loudness_target_lufs: -16
+    noise_reduction: true
+    noise_reduction_strength: 0.6
+    compressao: true
+    compressao_threshold_db: -20
+  notificacao:
+    ntfy_topico: "radio_tjrn_boletins"
+    notificar_deteccao: true
+    notificar_aprovacao: true
+    notificar_montagem: true
+assets:
+  vinheta_abertura: "vht/BOL - VHT - ABERTURA.mp3"
+  vinheta_encerramento: "vht/BOL - VHT - ENCERRAMENTO.mp3"
+  vinheta_transicao: "vht/BOL - VHT - PASSAGEM.mp3"
+  bg_musica: "vht/BOL - BG.mp3"
+montagem:
+  estrutura:
+    - tipo: vinheta
+      arquivo: "vinheta_abertura"
+      fade_in: 0.2
+      fade_out: 0.2
+    - tipo: voz
+      bg: "bg_musica"
+      bg_volume: -18
+      fade_in: 0.5
+      fade_out: 0.5
+    - tipo: vinheta
+      arquivo: "vinheta_encerramento"
+      fade_in: 0.2
+      fade_out: 0.2

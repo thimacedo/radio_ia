@@ -1,0 +1,20 @@
+emissora: {}
+programas:
+  Thiago:
+    nome: Thiago
+    workspace: ./modules/Thiago/workspace
+    prompt_file: ./prompts/Thiago.txt
+    perfil_mixagem: ./assets/vht/Thiago/perfil_audio.json
+    duracao_minima_s: 15
+    vozes:
+      estrategia: intra_file
+      lista:
+      - pt-BR-FranciscaNeural
+    armazenamento:
+      entrada:
+        tipo: local
+        caminho: ''
+      saida:
+        tipo: local
+        caminho: ''
+agendamentos: {}
