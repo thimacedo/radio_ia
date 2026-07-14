@@ -36,7 +36,7 @@ export async function getSessionUser() {
   if (!payload) return null
   const user = await db.user.findUnique({
     where: { id: payload.userId },
-    include: { department: true },
+    include: { departments: true },
   })
   if (!user || !user.active) return null
   return user

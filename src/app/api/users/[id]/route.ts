@@ -22,21 +22,44 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "Telefone já cadastrado" }, { status: 400 })
     }
   }
-  // Apenas admin muda role e departamento
+  if (body.gender !== undefined) data.gender = body.gender || null
+  
+  // Apenas admin muda role e departamentos
   if (user.role === ROLES.ADMIN) {
     if (body.role) data.role = body.role
-    if (body.departmentId !== undefined) data.departmentId = body.departmentId || null
-  } else if (user.role === ROLES.SUPERVISOR && body.departmentId !== undefined) {
-    // supervisor só pode mexer nos usuários do seu dept
-    const target = await db.user.findUnique({ where: { id } })
-    if (!target || target.departmentId !== user.departmentId) {
+    if (body.departmentIds !== undefined) {
+      data.departments = {
+        set: body.departmentIds.map((id: string) => ({ id })),
+      }
+    }
+  } else if (user.role === ROLES.SUPERVISOR) {
+    // supervisor só pode mexer nos usuários dos seus depts
+    const target = await db.user.findUnique({
+      where: { id },
+      include: { departments: true },
+    })
+    const userDeptIds = (user as any).departments?.map((d: any) => d.id) || []
+    const isSharedDept = target?.departments.some((d) => userDeptIds.includes(d.id))
+    if (!target || !isSharedDept) {
       return NextResponse.json({ error: "Sem permissão sobre este usuário" }, { status: 403 })
     }
   }
   if (body.active !== undefined) data.active = !!body.active
 
-  const updated = await db.user.update({ where: { id }, data })
-  return NextResponse.json({ user: updated })
+  const updated = await db.user.update({
+    where: { id },
+    data,
+    include: { departments: true },
+  })
+
+  const firstDept = updated.departments?.[0] || null
+  const formattedUser = {
+    ...updated,
+    departmentId: firstDept?.id || null,
+    department: firstDept,
+  }
+
+  return NextResponse.json({ user: formattedUser })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

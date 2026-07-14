@@ -9,7 +9,7 @@ export const ROLES = {
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
-  recepcao: "Recepção",
+  recepcao: "Lounge",
   supervisor: "Supervisor de Follow-up",
   voluntario: "Voluntário",
 }

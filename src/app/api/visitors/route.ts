@@ -44,8 +44,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
+  const user = await getSessionUser() // Opcional, pois o Lounge pode cadastrar sem login
 
   const body = await req.json()
   const {
@@ -62,6 +61,7 @@ export async function POST(req: NextRequest) {
     prayerRequest,
     notes,
     visitDate,
+    departmentId,
   } = body
 
   if (!name || !phone) {
@@ -97,20 +97,27 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Encontra departamentos que dão match
-  const matching = await findMatchingDepartments({
-    age: computedAge,
-    gender,
-    maritalStatus,
-  })
+  // Determina departamentos a associar
+  let deptsToUse: any[] = []
+  if (departmentId) {
+    const selectedDept = await db.department.findUnique({ where: { id: departmentId } })
+    if (selectedDept) deptsToUse = [selectedDept]
+  }
 
-  // Se nenhum departamento casar, atribui ao "Geral"
-  let deptsToUse = matching
+  // Se não foi selecionado ou não encontrado, roda o matching automático
   if (deptsToUse.length === 0) {
-    const geral = await db.department.findFirst({
-      where: { name: { contains: "Geral" } },
+    const matching = await findMatchingDepartments({
+      age: computedAge,
+      gender,
+      maritalStatus,
     })
-    if (geral) deptsToUse = [geral]
+    deptsToUse = matching
+    if (deptsToUse.length === 0) {
+      const geral = await db.department.findFirst({
+        where: { name: { contains: "Geral" } },
+      })
+      if (geral) deptsToUse = [geral]
+    }
   }
 
   // Cria um card por departamento correspondente (sem duplicar)
@@ -121,10 +128,18 @@ export async function POST(req: NextRequest) {
       where: { visitorId: visitor.id, departmentId: dept.id },
     })
     if (existing) continue
-    // Encontra supervisor do dept
+
+    // Encontra supervisor do dept usando a relação Muitos-para-Muitos
     const supervisor = await db.user.findFirst({
-      where: { departmentId: dept.id, role: ROLES.SUPERVISOR, active: true },
+      where: {
+        role: ROLES.SUPERVISOR,
+        active: true,
+        departments: {
+          some: { id: dept.id },
+        },
+      },
     })
+
     const card = await db.followUpCard.create({
       data: {
         visitorId: visitor.id,
@@ -133,9 +148,9 @@ export async function POST(req: NextRequest) {
         status: "novo",
         history: {
           create: {
-            userName: user.name,
+            userName: user?.name || "Lounge",
             action: "criado",
-            message: `Visitante cadastrado pela recepção. Direcionado para ${dept.name}.`,
+            message: `Visitante cadastrado pela lounge. Direcionado para ${dept.name}.`,
           },
         },
       },

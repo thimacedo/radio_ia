@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search") || ""
   const onlyMine = searchParams.get("mine") === "1"
 
-  // Constrói where conforme role
+  const userDeptIds = (user as any).departments?.map((d: any) => d.id) || []
   let where: any = {}
 
   if (user.role === ROLES.VOLUNTARIO) {
@@ -29,13 +29,13 @@ export async function GET(req: NextRequest) {
     } else {
       where.OR = [
         { volunteerId: user.id },
-        { volunteerId: null, departmentId: user.departmentId || "___none___" },
+        { volunteerId: null, departmentId: { in: userDeptIds.length > 0 ? userDeptIds : ["___none___"] } },
       ]
     }
   } else if (user.role === ROLES.SUPERVISOR) {
     // Supervisor vê: todos os cards dos seus departamentos
-    if (user.departmentId) {
-      where.departmentId = user.departmentId
+    if (userDeptIds.length > 0) {
+      where.departmentId = { in: userDeptIds }
     }
     // Se supervisor não tem dept, vê tudo (supervisor geral)
   }
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   // Cria card manualmente (supervisor/admin pode direcionar novo card para dept)
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
-  if (user.role !== ROLES.SUPERVISOR && user.role !== ROLES.ADMIN) {
+  if (user.role !== ROLES.SUPERVISOR && user.role !== ROLES.ADMIN && user.role !== ROLES.RECEPCAO) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 })
   }
 
@@ -90,12 +90,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Visitante e departamento são obrigatórios" }, { status: 400 })
   }
 
+  let supervisorId = user.role === ROLES.SUPERVISOR ? user.id : null
+  if (!supervisorId) {
+    const supervisor = await db.user.findFirst({
+      where: {
+        role: ROLES.SUPERVISOR,
+        active: true,
+        departments: {
+          some: { id: departmentId },
+        },
+      },
+    })
+    supervisorId = supervisor?.id || null
+  }
+
   const card = await db.followUpCard.create({
     data: {
       visitorId,
       departmentId,
       volunteerId: volunteerId || null,
-      supervisorId: user.role === ROLES.SUPERVISOR ? user.id : null,
+      supervisorId,
       priority: priority || "normal",
       notes: notes || null,
       status: "novo",

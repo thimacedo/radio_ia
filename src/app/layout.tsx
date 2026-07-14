@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "CCVideira Capim Macio · Follow-up",
-  description: "Sistema de follow-up de visitantes da CCVideira Capim Macio - Natal",
+  title: "CCVideira Capim Macio",
+  description: "Sistema de Lounge e Follow-up da CCVideira Capim Macio - Natal",
 }
 
 export default function RootLayout({

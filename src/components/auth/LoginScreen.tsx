@@ -11,9 +11,10 @@ import { toast } from "sonner"
 
 interface Props {
   onSuccess: (user: any) => void
+  onLoungeAccess?: () => void
 }
 
-export function LoginScreen({ onSuccess }: Props) {
+export function LoginScreen({ onSuccess, onLoungeAccess }: Props) {
   const [step, setStep] = useState<"phone" | "code">("phone")
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
@@ -130,22 +131,23 @@ export function LoginScreen({ onSuccess }: Props) {
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar código"}
                 </Button>
+                {onLoungeAccess && (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 mt-3">
+                    <Button
+                      variant="outline"
+                      className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
+                      onClick={onLoungeAccess}
+                    >
+                      Acesso Público - Cadastro do Lounge
+                    </Button>
+                  </div>
+                )}
               </>
             ) : (
               <>
                 <div className="space-y-2">
                   <Label>Código de acesso</Label>
                   <p className="text-sm text-slate-500">Olá, <strong>{userName}</strong>!</p>
-                  {devCode && (
-                    <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm">
-                      <p className="text-amber-800 dark:text-amber-300 font-medium">
-                        Seu código de acesso é: <span className="font-mono text-lg tracking-widest">{devCode}</span>
-                      </p>
-                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                        O código também foi enviado via WhatsApp (use o botão abaixo se precisar reenviar).
-                      </p>
-                    </div>
-                  )}
                   <InputOTP maxLength={6} value={code} onChange={setCode}>
                     <InputOTPGroup>
                       <InputOTPSlot index={0} />

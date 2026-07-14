@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -20,11 +20,12 @@ export function RecepcaoForm({ onCreated }: Props) {
   const [loading, setLoading] = useState(false)
   const [searchPhone, setSearchPhone] = useState("")
   const [recentVisitors, setRecentVisitors] = useState<any[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [departmentId, setDepartmentId] = useState("")
   const [form, setForm] = useState({
     name: "",
     phone: "",
     email: "",
-    age: "",
     birthDate: "",
     gender: "",
     maritalStatus: "",
@@ -39,9 +40,21 @@ export function RecepcaoForm({ onCreated }: Props) {
     setForm((f) => ({ ...f, [k]: v }))
   }
 
+  // Carrega os departamentos do sistema
+  useEffect(() => {
+    fetch("/api/departments")
+      .then((r) => r.json())
+      .then((data) => setDepartments(data.departments || []))
+      .catch(() => {})
+  }, [])
+
   async function submit() {
     if (!form.name.trim() || !form.phone.trim()) {
       toast.error("Nome e telefone são obrigatórios")
+      return
+    }
+    if (!departmentId) {
+      toast.error("Ministério de destino é obrigatório")
       return
     }
     setLoading(true)
@@ -51,8 +64,9 @@ export function RecepcaoForm({ onCreated }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          age: form.age ? Number(form.age) : null,
+          age: null, // a idade será calculada no backend via birthDate
           birthDate: form.birthDate || null,
+          departmentId,
         }),
       })
       const data = await res.json()
@@ -65,7 +79,6 @@ export function RecepcaoForm({ onCreated }: Props) {
         name: "",
         phone: "",
         email: "",
-        age: "",
         birthDate: "",
         gender: "",
         maritalStatus: "",
@@ -75,6 +88,7 @@ export function RecepcaoForm({ onCreated }: Props) {
         prayerRequest: "",
         notes: "",
       })
+      setDepartmentId("")
       onCreated?.()
       loadRecent()
     } finally {
@@ -132,8 +146,15 @@ export function RecepcaoForm({ onCreated }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Idade</Label>
-              <Input type="number" min={0} max={120} value={form.age} onChange={(e) => set("age", e.target.value)} placeholder="Ex: 35" />
+              <Label>Ministério de Destino *</Label>
+              <Select value={departmentId} onValueChange={setDepartmentId}>
+                <SelectTrigger><SelectValue placeholder="Selecione o ministério" /></SelectTrigger>
+                <SelectContent>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">
@@ -197,7 +218,7 @@ export function RecepcaoForm({ onCreated }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Observações da recepção</Label>
+            <Label>Observações do Lounge</Label>
             <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="Anotações gerais..." />
           </div>
 

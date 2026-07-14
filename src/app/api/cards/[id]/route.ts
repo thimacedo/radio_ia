@@ -15,7 +15,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const card = await db.followUpCard.findUnique({
     where: { id },
     include: {
-      visitor: true,
+      visitor: {
+        include: {
+          cards: {
+            include: {
+              department: true,
+            },
+          },
+        },
+      },
       department: true,
       volunteer: { select: { id: true, name: true, phone: true } },
       supervisor: { select: { id: true, name: true, phone: true } },
@@ -34,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params
   const body = await req.json()
-  const { status, volunteerId, supervisorId, priority, notes, lastContactAt, nextActionAt, addHistory } = body
+  const { status, volunteerId, supervisorId, priority, notes, lastContactAt, nextActionAt, addHistory, departmentId } = body
 
   const card = await db.followUpCard.findUnique({ where: { id } })
   if (!card) return NextResponse.json({ error: "Card não encontrado" }, { status: 404 })
@@ -44,6 +52,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // supervisor/admin: tudo
   const isVoluntario = user.role === ROLES.VOLUNTARIO
   const isManager = user.role === ROLES.SUPERVISOR || user.role === ROLES.ADMIN
+  const isLounge = user.role === ROLES.RECEPCAO
+  const canManageDept = isManager || isLounge
 
   const data: any = {}
   const historyEntries: any[] = []
@@ -61,6 +71,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if (volunteerId !== undefined && isManager) {
     if (volunteerId !== card.volunteerId) {
+      if (volunteerId) {
+        const volunteer = await db.user.findUnique({
+          where: { id: volunteerId },
+          include: { departments: true },
+        })
+        if (!volunteer) return NextResponse.json({ error: "Voluntário não encontrado" }, { status: 404 })
+
+        // Validação de gênero inegociável
+        if (volunteer.gender && card.visitor.gender && volunteer.gender !== card.visitor.gender) {
+          return NextResponse.json({
+            error: `Regra de Gênero: Voluntário do sexo ${volunteer.gender === "M" ? "Masculino" : "Feminino"} não pode acompanhar visitante do sexo ${card.visitor.gender === "M" ? "Masculino" : "Feminino"}.`,
+          }, { status: 400 })
+        }
+
+        // Validação de designação do ministério do voluntário
+        const isDesignated = volunteer.departments.some(d => d.id === card.departmentId)
+        if (!isDesignated) {
+          return NextResponse.json({
+            error: "Este voluntário não está designado para o departamento deste card.",
+          }, { status: 400 })
+        }
+      }
+
       data.volunteerId = volunteerId || null
       historyEntries.push({
         userId: user.id,
@@ -69,6 +102,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         message: volunteerId
           ? `Card atribuído a um voluntário por ${user.name}.`
           : `Card liberado (sem voluntário) por ${user.name}.`,
+      })
+    }
+  }
+  if (departmentId !== undefined && canManageDept) {
+    if (departmentId !== card.departmentId) {
+      const oldDept = await db.department.findUnique({ where: { id: card.departmentId } })
+      const newDept = await db.department.findUnique({ where: { id: departmentId } })
+      if (!newDept) return NextResponse.json({ error: "Departamento de destino não encontrado" }, { status: 404 })
+      
+      data.departmentId = departmentId
+      data.volunteerId = null
+      
+      const newSupervisor = await db.user.findFirst({
+        where: {
+          role: ROLES.SUPERVISOR,
+          active: true,
+          departments: {
+            some: { id: departmentId },
+          },
+        },
+      })
+      data.supervisorId = newSupervisor?.id || null
+
+      historyEntries.push({
+        userId: user.id,
+        userName: user.name,
+        action: "departamento_alterado",
+        message: `Departamento alterado de "${oldDept?.name || "Desconhecido"}" para "${newDept?.name || "Desconhecido"}" por ${user.name}. Voluntário desatribuído.`,
       })
     }
   }

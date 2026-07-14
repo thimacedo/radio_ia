@@ -86,18 +86,36 @@ export function CardDetailSheet({ cardId, open, onOpenChange, onUpdated, onDelet
   const [editNotes, setEditNotes] = useState("")
   const [nextAction, setNextAction] = useState("")
   const [selectedVolunteer, setSelectedVolunteer] = useState<string>("")
+  const [currentCardId, setCurrentCardId] = useState<string | null>(null)
+  const [departments, setDepartments] = useState<any[]>([])
 
   const isManager = user?.role === "supervisor" || user?.role === "admin"
+  const isLounge = user?.role === "recepcao"
+  const canManageDept = isManager || isLounge
   const canEdit = !!user && (isManager || card?.volunteerId === user.id || (!card?.volunteer && card?.departmentId === user?.departmentId))
 
   useEffect(() => {
-    if (cardId && open) loadCard()
-  }, [cardId, open])
+    if (cardId) setCurrentCardId(cardId)
+  }, [cardId])
 
-  async function loadCard() {
+  useEffect(() => {
+    if (currentCardId && open) loadCard(currentCardId)
+  }, [currentCardId, open])
+
+  useEffect(() => {
+    if (open) {
+      fetch("/api/departments")
+        .then((r) => r.json())
+        .then((data) => setDepartments(data.departments || []))
+        .catch(() => {})
+    }
+  }, [open])
+
+  async function loadCard(idToLoad = currentCardId) {
+    if (!idToLoad) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/cards/${cardId}`)
+      const res = await fetch(`/api/cards/${idToLoad}`)
       const data = await res.json()
       setCard(data.card)
       setEditNotes(data.card?.notes || "")
@@ -107,6 +125,55 @@ export function CardDetailSheet({ cardId, open, onOpenChange, onUpdated, onDelet
       toast.error("Erro ao carregar card")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function updateDepartment(departmentId: string) {
+    if (!card) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/cards/${card.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ departmentId }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast.error(d.error || "Erro ao atualizar departamento")
+        return
+      }
+      toast.success("Departamento atualizado")
+      await loadCard(card.id)
+      onUpdated()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function addVisitorToDepartment(departmentId: string) {
+    if (!card) return
+    setSaving(true)
+    try {
+      const res = await fetch("/api/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          visitorId: card.visitor.id,
+          departmentId,
+          priority: card.priority,
+          notes: "Direcionado manualmente a outro departamento.",
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast.error(d.error || "Erro ao adicionar departamento")
+        return
+      }
+      toast.success("Adicionado a novo departamento")
+      await loadCard(card.id)
+      onUpdated()
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -342,6 +409,56 @@ export function CardDetailSheet({ cardId, open, onOpenChange, onUpdated, onDelet
                   <p className="text-sm italic">{card.visitor.prayerRequest}</p>
                 </div>
               )}
+
+              {/* Departamentos do Visitante */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-xs font-medium text-slate-500 mb-1.5">Acompanhamentos ativos:</p>
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {(card.visitor as any).cards?.map((c: any) => (
+                    <Badge
+                      key={c.id}
+                      variant={c.id === card.id ? "default" : "outline"}
+                      className="text-[10px] px-2 py-0.5 cursor-pointer hover:opacity-80 transition-opacity"
+                      style={{
+                        borderColor: c.department?.color || undefined,
+                        color: c.id !== card.id ? (c.department?.color || undefined) : undefined,
+                        backgroundColor: c.id === card.id ? (c.department?.color || undefined) : undefined,
+                      }}
+                      onClick={() => {
+                        if (c.id !== card.id) {
+                          setCurrentCardId(c.id)
+                        }
+                      }}
+                    >
+                      {c.department?.name || "Desconhecido"} ({STATUS_LABELS[c.status] || c.status})
+                    </Badge>
+                  ))}
+                  
+                  {canManageDept && (
+                    <Select
+                      value="add"
+                      onValueChange={(deptId) => {
+                        if (deptId !== "add") {
+                          addVisitorToDepartment(deptId)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-6 w-auto border-dashed text-slate-500 bg-transparent px-2 py-0 text-[10px]">
+                        <SelectValue placeholder="+ Adicionar depto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="add" disabled>Selecione um departamento</SelectItem>
+                        {departments
+                          .filter(d => !(card.visitor as any).cards?.some((c: any) => c.departmentId === d.id))
+                          .map(d => (
+                            <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                          ))
+                        }
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Alterar status */}
@@ -353,6 +470,21 @@ export function CardDetailSheet({ cardId, open, onOpenChange, onUpdated, onDelet
                   <SelectContent>
                     {Object.entries(STATUS_LABELS).map(([k, v]) => (
                       <SelectItem key={k} value={k}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Alterar departamento */}
+            {canManageDept && (
+              <div className="space-y-2">
+                <Label className="text-xs uppercase text-slate-500">Alterar departamento do card</Label>
+                <Select value={card.departmentId || ""} onValueChange={updateDepartment} disabled={saving}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {departments.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -383,9 +515,20 @@ export function CardDetailSheet({ cardId, open, onOpenChange, onUpdated, onDelet
                     <SelectTrigger className="flex-1"><SelectValue placeholder="Sem voluntário" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">— Sem voluntário —</SelectItem>
-                      {volunteers.map((v) => (
-                        <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
-                      ))}
+                      {volunteers
+                        .filter((v) => {
+                          // 1. Regra inegociável de gênero
+                          if (v.gender && card.visitor.gender && v.gender !== card.visitor.gender) {
+                            return false
+                          }
+                          // 2. Regra de departamento
+                          const isDesignated = v.departments?.some((d: any) => d.id === card.departmentId) || v.departmentId === card.departmentId
+                          return isDesignated
+                        })
+                        .map((v) => (
+                          <SelectItem key={v.id} value={v.id}>{v.name} ({v.gender === "M" ? "M" : "F"})</SelectItem>
+                        ))
+                      }
                     </SelectContent>
                   </Select>
                   <Button onClick={assignVolunteer} disabled={saving} size="icon">

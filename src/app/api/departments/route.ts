@@ -6,15 +6,28 @@ import { ROLES } from "@/lib/constants"
 
 export async function GET() {
   const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
 
-  const departments = await db.department.findMany({
-    include: {
-      _count: { select: { cards: true, users: true } },
-      users: {
-        where: { role: { in: [ROLES.SUPERVISOR, ROLES.VOLUNTARIO] }, active: true },
-        select: { id: true, name: true, role: true, phone: true },
+  if (user) {
+    const departments = await db.department.findMany({
+      include: {
+        _count: { select: { cards: true, users: true } },
+        users: {
+          where: { role: { in: [ROLES.SUPERVISOR, ROLES.VOLUNTARIO] }, active: true },
+          select: { id: true, name: true, role: true, phone: true },
+        },
       },
+      orderBy: { name: "asc" },
+    })
+    return NextResponse.json({ departments })
+  }
+
+  // Se deslogado (Lounge público), traz apenas o básico
+  const departments = await db.department.findMany({
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      color: true,
     },
     orderBy: { name: "asc" },
   })

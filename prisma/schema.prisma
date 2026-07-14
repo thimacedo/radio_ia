@@ -15,8 +15,8 @@ model User {
   name         String
   phone        String       @unique // formato: 5584999999999
   role         String       @default("voluntario") // recepcao | supervisor | voluntario | admin
-  departmentId String?
-  department   Department?  @relation(fields: [departmentId], references: [id])
+  gender       String?      // M | F
+  departments  Department[]
   active       Boolean      @default(true)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt

@@ -11,8 +11,11 @@ export async function GET() {
   let where: any = {}
   if (user.role === ROLES.VOLUNTARIO) {
     where = { volunteerId: user.id }
-  } else if (user.role === ROLES.SUPERVISOR && user.departmentId) {
-    where = { departmentId: user.departmentId }
+  } else if (user.role === ROLES.SUPERVISOR) {
+    const userDeptIds = (user as any).departments?.map((d: any) => d.id) || []
+    if (userDeptIds.length > 0) {
+      where = { departmentId: { in: userDeptIds } }
+    }
   }
 
   const total = await db.followUpCard.count({ where })

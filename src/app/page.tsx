@@ -8,11 +8,13 @@ import { Dashboard } from "@/components/shared/Dashboard"
 import { RecepcaoForm } from "@/components/recepcao/RecepcaoForm"
 import { UsersManager } from "@/components/admin/UsersManager"
 import { ROLES } from "@/lib/constants"
-import { Leaf, Loader2 } from "lucide-react"
+import { Leaf, Loader2, ArrowLeft } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 export default function Home() {
   const { user, loadingUser, setUser, setLoadingUser } = useAppStore()
   const [activeTab, setActiveTab] = useState("dashboard")
+  const [showLoungePublic, setShowLoungePublic] = useState(false)
 
   // Carrega sessão atual
   useEffect(() => {
@@ -38,7 +40,24 @@ export default function Home() {
   }
 
   if (!user) {
-    return <LoginScreen onSuccess={(u) => setUser(u)} />
+    if (showLoungePublic) {
+      return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-8 flex flex-col">
+          <div className="max-w-4xl mx-auto w-full flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <Leaf className="text-emerald-600 w-5 h-5" /> CCVideira - Cadastro Lounge
+            </h2>
+            <Button variant="outline" size="sm" onClick={() => setShowLoungePublic(false)}>
+              <ArrowLeft className="w-4 h-4 mr-2" /> Voltar para o Login
+            </Button>
+          </div>
+          <div className="max-w-4xl mx-auto w-full flex-1">
+            <RecepcaoForm onCreated={() => setShowLoungePublic(false)} />
+          </div>
+        </div>
+      )
+    }
+    return <LoginScreen onSuccess={(u) => setUser(u)} onLoungeAccess={() => setShowLoungePublic(true)} />
   }
 
   return <App loggedUser={user} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -60,7 +79,7 @@ function App({ loggedUser, activeTab, setActiveTab }: { loggedUser: any; activeT
   } else if (user.role === ROLES.ADMIN) {
     tabs.push({ id: "dashboard", label: "Dashboard", icon: Leaf })
     tabs.push({ id: "equipe", label: "Equipe", icon: Leaf })
-    tabs.push({ id: "cadastro", label: "Recepção", icon: Leaf })
+    tabs.push({ id: "cadastro", label: "Lounge", icon: Leaf })
   }
 
   // Garante que a aba atual existe

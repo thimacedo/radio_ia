@@ -23,7 +23,7 @@ export function UsersManager() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any | null>(null)
-  const [form, setForm] = useState({ name: "", phone: "", role: ROLES.VOLUNTARIO, departmentId: "" })
+  const [form, setForm] = useState({ name: "", phone: "", role: ROLES.VOLUNTARIO, departmentIds: [] as string[], gender: "M" })
 
   const isAdmin = user.role === ROLES.ADMIN
 
@@ -48,18 +48,29 @@ export function UsersManager() {
 
   function openNew() {
     setEditingUser(null)
+    const initialDepts = user.role === ROLES.SUPERVISOR
+      ? (user.departments?.map((d: any) => d.id) || [user.departmentId].filter(Boolean) as string[])
+      : []
     setForm({
       name: "",
       phone: "",
       role: ROLES.VOLUNTARIO,
-      departmentId: user.departmentId || "",
+      departmentIds: initialDepts,
+      gender: "M",
     })
     setDialogOpen(true)
   }
 
   function openEdit(u: any) {
     setEditingUser(u)
-    setForm({ name: u.name, phone: u.phone, role: u.role, departmentId: u.departmentId || "" })
+    const userDepts = u.departments?.map((d: any) => d.id) || [u.departmentId].filter(Boolean) as string[]
+    setForm({
+      name: u.name,
+      phone: u.phone,
+      role: u.role,
+      departmentIds: userDepts,
+      gender: u.gender || "M",
+    })
     setDialogOpen(true)
   }
 
@@ -138,7 +149,7 @@ export function UsersManager() {
             <Users className="w-5 h-5 text-emerald-600" />
             Equipe de Follow-up
           </CardTitle>
-          <CardDescription>Gerencie voluntários, supervisores e recepção</CardDescription>
+          <CardDescription>Gerencie voluntários, supervisores e Lounge</CardDescription>
         </div>
         <Button onClick={openNew} className="bg-emerald-600 hover:bg-emerald-700">
           <UserPlus className="w-4 h-4 mr-2" /> Novo
@@ -170,9 +181,18 @@ export function UsersManager() {
                   </div>
                   <Badge variant="outline" className="text-[10px]">{ROLE_LABELS[u.role]}</Badge>
                 </div>
-                {u.department && (
-                  <p className="text-xs text-slate-500 mt-2 pl-11">Dept: {u.department.name}</p>
-                )}
+                <div className="mt-2 pl-11 space-y-0.5">
+                  {u.departments && u.departments.length > 0 && (
+                    <p className="text-xs text-slate-500 font-medium">
+                      Depts: {u.departments.map((d: any) => d.name).join(", ")}
+                    </p>
+                  )}
+                  {u.gender && (
+                    <p className="text-[10px] text-slate-400">
+                      Gênero: {u.gender === "M" ? "Masculino" : "Feminino"}
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <Switch checked={u.active} onCheckedChange={() => toggleActive(u)} />
@@ -210,7 +230,7 @@ export function UsersManager() {
             <DialogDescription>
               {editingUser
                 ? "Atualize os dados do membro da equipe."
-                : "Cadastre um novo voluntário, supervisor ou membro da recepção. Ele acessará o sistema via WhatsApp, sem senha."}
+                : "Cadastre um novo voluntário, supervisor ou membro do Lounge. Ele acessará o sistema via WhatsApp, sem senha."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -236,16 +256,40 @@ export function UsersManager() {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label>Departamento</Label>
-              <Select value={form.departmentId || "none"} onValueChange={(v) => setForm({ ...form, departmentId: v === "none" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="Sem departamento" /></SelectTrigger>
+              <Label>Sexo (Gênero) *</Label>
+              <Select value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">— Sem departamento —</SelectItem>
-                  {departments.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                  ))}
+                  <SelectItem value="M">Masculino</SelectItem>
+                  <SelectItem value="F">Feminino</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Ministérios / Departamentos</Label>
+              <div className="grid grid-cols-1 gap-1.5 border rounded-md p-3 max-h-36 overflow-y-auto">
+                {departments.map((d) => {
+                  const checked = form.departmentIds.includes(d.id)
+                  return (
+                    <label key={d.id} className="flex items-center gap-2 text-sm cursor-pointer hover:opacity-80">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setForm({ ...form, departmentIds: [...form.departmentIds, d.id] })
+                          } else {
+                            setForm({ ...form, departmentIds: form.departmentIds.filter((id) => id !== d.id) })
+                          }
+                        }}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                      />
+                      <span>{d.name}</span>
+                    </label>
+                  )
+                })}
+              </div>
             </div>
           </div>
           <DialogFooter>
